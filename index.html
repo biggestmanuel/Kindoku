@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Kindoku — Discover your next Manga, Manhwa, Manhua or Light Novel obsession." />
+  <title>Kindoku · 読む</title>
+  <link rel="stylesheet" href="kindoku.css" />
+</head>
+<body>
+
+  <!-- Particle canvas -->
+  <canvas id="particle-canvas"></canvas>
+
+  <!-- Ink blobs -->
+  <div class="ink-blob ink-blob-1"></div>
+  <div class="ink-blob ink-blob-2"></div>
+  <div class="ink-blob ink-blob-3"></div>
+
+  <div id="app">
+
+    <!-- ── Navbar ── -->
+    <nav>
+      <a class="nav-logo" href="#">
+        Kindoku
+        <span>金 · 흑 · 読</span>
+      </a>
+      <p class="nav-tagline">Manga · Manhwa · Manhua · Light Novels</p>
+    </nav>
+
+    <!-- ── Hero ── -->
+    <section id="hero">
+      <p class="hero-kana">金 · 흑 · 読 · きんどく</p>
+
+      <h1 class="hero-title">
+        <span class="gold-text">Kindoku</span>
+        <span class="red-text">Your Next Obsession Starts Here</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Discover Manga, Manhwa, Manhua &amp; Light Novels curated by AI — across every genre, every mood.
+      </p>
+
+      <div class="hero-languages">
+        <span class="hero-lang-tag"><span>金</span> Gold · Japanese</span>
+        <span class="hero-lang-tag"><span>흑</span> Black · Korean</span>
+        <span class="hero-lang-tag"><span>読</span> Read · Chinese</span>
+      </div>
+
+      <div class="scroll-hint">
+        <span>Explore</span>
+        <div class="scroll-line"></div>
+      </div>
+    </section>
+
+    <!-- ── Search Section ── -->
+    <section id="search-section">
+      <p class="section-label">Choose Your Genre</p>
+      <h2 class="section-title">What are you in the mood for?</h2>
+
+      <!-- Genre Grid -->
+      <div class="genre-grid" id="genre-grid"></div>
+
+      <!-- Custom Input -->
+      <div class="custom-input-wrapper">
+        <input
+          type="text"
+          id="custom-input"
+          placeholder="Or describe what you want... e.g. 'dark fantasy with a revenge plot'"
+          autocomplete="off"
+        />
+        <button id="search-btn">Discover</button>
+      </div>
+    </section>
+
+    <!-- ── Loading ── -->
+    <div id="loading">
+      <div class="loading-inner">
+        <div class="loading-kanji">読</div>
+        <p class="loading-text">Searching the archives</p>
+        <div class="loading-dots">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Error ── -->
+    <p id="error-msg"></p>
+
+    <!-- ── Results ── -->
+    <section id="results-section">
+      <div class="results-header">
+        <h2 class="results-title" id="results-title"></h2>
+        <span class="results-meta" id="results-meta"></span>
+      </div>
+      <div class="gold-divider"></div>
+      <div class="cards-grid" id="cards-grid"></div>
+    </section>
+
+    <!-- ── Footer ── -->
+    <footer>
+      <p class="footer-logo">Kindoku</p>
+      <p class="footer-text">Powered by AI · Built for readers</p>
+      <div class="footer-langs">
+        <span class="footer-lang" title="Japanese">金</span>
+        <span class="footer-lang" title="Korean">흑</span>
+        <span class="footer-lang" title="Chinese">読</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="kindoku.js"></script>
+</body>
+</html>
