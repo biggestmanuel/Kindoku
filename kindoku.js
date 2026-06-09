@@ -1,3 +1,4 @@
+// Kindoku v2
 // ── Particle System ──
 const canvas = document.getElementById('particle-canvas');
 const ctx = canvas.getContext('2d');
