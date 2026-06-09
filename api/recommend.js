@@ -3,22 +3,24 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { genres, tags, customInput } = req.body;
+  const { genres, tags, customInput, exclude } = req.body;
 
   if (!genres?.length && !tags?.length && !customInput) {
-    return res.status(400).json({ error: "Genre or custom input is required" });
+    return res.status(400).json({ error: "Please select a genre, tag, or describe what you want." });
   }
 
-  const userQuery = [
-    ...(genres || []),
-    ...(tags || []),
-    customInput
-  ].filter(Boolean).join(", ");
+  const userQuery = [...(genres || []), ...(tags || []), customInput]
+    .filter(Boolean).join(", ");
 
-  const prompt = `You are Kindoku, an expert recommender of Manga, Manhwa, Manhua, and Light Novels. 
+  const excludeClause = exclude?.length
+    ? `\nDo NOT recommend any of these titles (already shown): ${exclude.join(", ")}.`
+    : "";
+
+  const prompt = `You are Kindoku, an expert recommender of Manga, Manhwa, Manhua, and Light Novels.
 A user is looking for recommendations based on: "${userQuery}"
+${excludeClause}
 
-Return ONLY a valid JSON array (no markdown, no explanation, no backticks) with exactly 8 recommendations.
+Return ONLY a valid JSON array (no markdown, no explanation, no backticks) with exactly 20 recommendations.
 Mix between Manga, Manhwa, Manhua, and occasionally Light Novels naturally.
 Each object must have these exact fields:
 {

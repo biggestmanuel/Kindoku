@@ -224,6 +224,7 @@ async function fetchRecommendations() {
 
 // ── Render Cards ──
 function renderCards(recs, queryParts) {
+  allTitles = recs.map(r => r.title);
   cardsGrid.innerHTML = '';
 
   const label = queryParts.slice(0, 3).join(' · ') + (queryParts.length > 3 ? ' · ...' : '');
@@ -289,3 +290,84 @@ shakeStyle.textContent = `
   }
 `;
 document.head.appendChild(shakeStyle);
+
+// ── Load More ──
+const loadMoreBtn = document.getElementById('load-more-btn');
+const loadMoreText = document.getElementById('load-more-text');
+let currentQuery = { genres: [], tags: [], customInput: '' };
+let allTitles = [];
+
+loadMoreBtn.addEventListener('click', loadMore);
+
+async function loadMore() {
+  loadMoreBtn.disabled = true;
+  loadMoreBtn.classList.add('loading-more');
+  loadMoreText.textContent = 'Loading...';
+
+  try {
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        genres: currentQuery.genres,
+        tags: currentQuery.tags,
+        customInput: currentQuery.customInput,
+        exclude: allTitles,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.recommendations) throw new Error(data.error || 'Something went wrong');
+
+    // Append new cards
+    const startIndex = allTitles.length;
+    data.recommendations.forEach(r => allTitles.push(r.title));
+    appendCards(data.recommendations, startIndex);
+
+    // Update meta count
+    resultsMeta.textContent = `${allTitles.length} titles found`;
+
+  } catch (err) {
+    console.error('Load more failed:', err);
+  } finally {
+    loadMoreBtn.disabled = false;
+    loadMoreBtn.classList.remove('loading-more');
+    loadMoreText.textContent = 'Load More';
+  }
+}
+
+function appendCards(recs, startIndex) {
+  recs.forEach((r, i) => {
+    const typeClass = r.type?.toLowerCase() === 'light novel' ? 'ln'
+      : r.type?.toLowerCase() === 'manhwa' ? 'manhwa'
+      : r.type?.toLowerCase() === 'manhua' ? 'manhua'
+      : '';
+    const statusClass = r.status?.toLowerCase() === 'completed' ? 'completed' : '';
+    const genreTags = (r.genre || []).map(g => `<span class="genre-tag">${g}</span>`).join('');
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.animationDelay = `${(i % 20) * 0.05}s`;
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="card-badges">
+          <span class="badge badge-type ${typeClass}">${r.type || 'Manga'}</span>
+          <span class="badge badge-status ${statusClass}">${r.status || 'Ongoing'}</span>
+        </div>
+        <div class="card-rating">${r.rating || '—'}</div>
+      </div>
+      <div class="card-body">
+        <h3 class="card-title">${r.title}</h3>
+        <div class="card-genres">${genreTags}</div>
+        <p class="card-synopsis">${r.synopsis}</p>
+        ${r.coverHint ? `<p class="card-cover-hint">${r.coverHint}</p>` : ''}
+      </div>
+      <div class="card-footer">
+        <a class="read-btn" href="${r.readUrl}" target="_blank" rel="noopener noreferrer">
+          読む · Read Now
+        </a>
+      </div>
+    `;
+    cardsGrid.appendChild(card);
+  });
+}

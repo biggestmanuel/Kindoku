@@ -690,3 +690,55 @@ footer {
   .hero-languages { flex-wrap: wrap; gap: 8px; }
   .genre-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ── Load More ── */
+#load-more-wrapper {
+  text-align: center;
+  padding: 48px 0 20px;
+}
+
+#load-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--gold);
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  padding: 14px 36px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-transform: uppercase;
+}
+
+#load-more-btn:hover {
+  border-color: var(--gold);
+  background: rgba(232,184,75,0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(232,184,75,0.15);
+}
+
+#load-more-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+#load-more-btn svg {
+  animation: none;
+  transition: transform 0.3s;
+}
+
+#load-more-btn.loading-more svg {
+  animation: spinDown 1s linear infinite;
+}
+
+@keyframes spinDown {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
