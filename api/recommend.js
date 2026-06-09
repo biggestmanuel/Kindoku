@@ -30,28 +30,24 @@ Each object must have these exact fields:
 
 Only return the JSON array. No other text.`;
 
-  const FREE_MODELS = [
-    "meta-llama/llama-3.3-8b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "qwen/qwen-2.5-7b-instruct:free",
-    "google/gemma-3-4b-it:free",
-    "deepseek/deepseek-r1-0528:free",
+  const GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
   ];
 
   let lastError = null;
 
-  for (const model of FREE_MODELS) {
+  for (const model of GROQ_MODELS) {
     try {
-      console.log(`Trying model: ${model}`);
+      console.log(`Trying Groq model: ${model}`);
 
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.API_KEY_FOR_KINDOKU}`,
-          "HTTP-Referer": "https://kindoku.vercel.app",
-          "X-Title": "Kindoku",
         },
         body: JSON.stringify({
           model,
@@ -69,7 +65,6 @@ Only return the JSON array. No other text.`;
         continue;
       }
 
-      // Strip any accidental markdown fences
       const cleaned = raw.replace(/```json|```/g, "").trim();
       const recommendations = JSON.parse(cleaned);
 
@@ -83,7 +78,6 @@ Only return the JSON array. No other text.`;
     }
   }
 
-  // All models failed
-  console.error("All models failed. Last error:", lastError);
+  console.error("All Groq models failed. Last error:", lastError);
   return res.status(500).json({ error: "All AI models are currently unavailable. Please try again shortly." });
 }
