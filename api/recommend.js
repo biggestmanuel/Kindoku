@@ -1,3 +1,5 @@
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -20,7 +22,7 @@ export default async function handler(req, res) {
 A user is looking for recommendations based on: "${userQuery}"
 ${excludeClause}
 
-Return ONLY a valid JSON array (no markdown, no explanation, no backticks) with exactly 20 recommendations.
+Return ONLY a valid JSON array (no markdown, no explanation, no backticks) with exactly 10 recommendations.
 Mix between Manga, Manhwa, Manhua, and occasionally Light Novels naturally.
 Each object must have these exact fields:
 {
@@ -36,16 +38,22 @@ Each object must have these exact fields:
 
 Only return the JSON array. No other text.`;
 
+  // Lighter/faster models first to avoid rate limits
   const GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
     "gemma2-9b-it",
+    "mixtral-8x7b-32768",
+    "llama-3.3-70b-versatile",
   ];
 
   let lastError = null;
 
-  for (const model of GROQ_MODELS) {
+  for (let i = 0; i < GROQ_MODELS.length; i++) {
+    const model = GROQ_MODELS[i];
+
+    // Delay between retries to avoid rate limit cascade
+    if (i > 0) await sleep(1500);
+
     try {
       console.log(`Trying Groq model: ${model}`);
 
@@ -63,6 +71,15 @@ Only return the JSON array. No other text.`;
       });
 
       const data = await response.json();
+
+      // Check for rate limit error specifically
+      if (response.status === 429) {
+        console.warn(`Model ${model} rate limited, waiting before next...`);
+        await sleep(2000);
+        lastError = "Rate limited";
+        continue;
+      }
+
       const raw = data.choices?.[0]?.message?.content;
 
       if (!raw) {
