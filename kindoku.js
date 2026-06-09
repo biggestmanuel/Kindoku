@@ -317,6 +317,7 @@ function shakeDiscoverBtn() {
   setTimeout(() => discoverBtn.style.animation = '', 400);
 }
 
+
 const shakeStyle = document.createElement('style');
 shakeStyle.textContent = `
   @keyframes shake {
