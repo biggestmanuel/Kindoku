@@ -2,24 +2,24 @@
 
 /* ── Variables ── */
 :root {
-  --gold: #c9a84c;
-  --gold-light: #f0d080;
-  --gold-dim: #7a5f2a;
-  --gold-glow: rgba(201, 168, 76, 0.4);
-  --black: #080808;
-  --black-2: #0f0f0f;
-  --black-3: #151515;
-  --black-4: #1e1e1e;
-  --black-5: #2a2a2a;
-  --ink: #1a1008;
-  --red-accent: #8b1a1a;
-  --red-glow: rgba(139, 26, 26, 0.3);
-  --text-primary: #e8d8a0;
-  --text-secondary: #9a8860;
-  --text-muted: #5a4f38;
-  --border: rgba(201, 168, 76, 0.2);
-  --border-hover: rgba(201, 168, 76, 0.6);
-  --card-bg: rgba(15, 12, 5, 0.9);
+  --gold: #d4a017;
+  --gold-light: #e6b325;
+  --gold-dim: #f0d080;
+  --gold-glow: rgba(212, 160, 23, 0.35);
+  --black: #161616;
+  --black-2: #1f1f1f;
+  --black-3: #262626;
+  --black-4: #303030;
+  --black-5: #3a3a3a;
+  --ink: #0f0f0f;
+  --red-accent: #b84c4c;
+  --red-glow: rgba(184, 76, 76, 0.3);
+  --text-primary: #f5f5f5;
+  --text-secondary: #d0d0d0;
+  --text-muted: #9ca3af;
+  --border: rgba(212, 160, 23, 0.15);
+  --border-hover: rgba(212, 160, 23, 0.45);
+  --card-bg: rgba(31, 31, 31, 0.95);
   --radius: 4px;
   --radius-lg: 8px;
 }
