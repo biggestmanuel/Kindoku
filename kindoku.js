@@ -2,7 +2,6 @@
 const canvas = document.getElementById('particle-canvas');
 const ctx = canvas.getContext('2d');
 let particles = [];
-let animFrameId;
 
 function resizeCanvas() {
   canvas.width = window.innerWidth;
@@ -11,7 +10,6 @@ function resizeCanvas() {
 
 class Particle {
   constructor() { this.reset(true); }
-
   reset(initial = false) {
     this.x = Math.random() * canvas.width;
     this.y = initial ? Math.random() * canvas.height : canvas.height + 10;
@@ -20,40 +18,33 @@ class Particle {
     this.speedX = (Math.random() - 0.5) * 0.3;
     this.opacity = Math.random() * 0.6 + 0.1;
     this.opacitySpeed = (Math.random() * 0.005 + 0.002) * (Math.random() > 0.5 ? 1 : -1);
-    this.gold = Math.random() > 0.25;
-    // gold or red-gold particle
-    if (this.gold) {
+    this.twinkle = Math.random() > 0.6;
+    this.twinkleSpeed = Math.random() * 0.03 + 0.01;
+    this.twinkleOffset = Math.random() * Math.PI * 2;
+    const gold = Math.random() > 0.25;
+    if (gold) {
       const r = Math.floor(180 + Math.random() * 71);
       const g = Math.floor(130 + Math.random() * 60);
       const b = Math.floor(20 + Math.random() * 40);
       this.color = `rgb(${r},${g},${b})`;
     } else {
-      this.color = `rgb(${Math.floor(120 + Math.random() * 60)},${Math.floor(20 + Math.random() * 30)},${Math.floor(20 + Math.random() * 20)})`;
+      this.color = `rgb(${Math.floor(120 + Math.random() * 60)},${Math.floor(20 + Math.random() * 30)},20)`;
     }
-    this.twinkle = Math.random() > 0.6;
-    this.twinkleSpeed = Math.random() * 0.03 + 0.01;
-    this.twinkleOffset = Math.random() * Math.PI * 2;
   }
-
-  update(t) {
+  update() {
     this.x += this.speedX;
     this.y += this.speedY;
     this.opacity += this.opacitySpeed;
     if (this.opacity > 0.8 || this.opacity < 0.05) this.opacitySpeed *= -1;
     if (this.y < -10) this.reset();
   }
-
   draw(t) {
     let op = this.opacity;
     if (this.twinkle) op *= (0.5 + 0.5 * Math.sin(t * this.twinkleSpeed + this.twinkleOffset));
     ctx.save();
     ctx.globalAlpha = op;
     ctx.fillStyle = this.color;
-    if (this.size > 1.5) {
-      // star shape for larger particles
-      ctx.shadowBlur = 6;
-      ctx.shadowColor = this.color;
-    }
+    if (this.size > 1.5) { ctx.shadowBlur = 6; ctx.shadowColor = this.color; }
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
     ctx.fill();
@@ -67,62 +58,61 @@ function initParticles() {
   for (let i = 0; i < count; i++) particles.push(new Particle());
 }
 
-let lastT = 0;
 function animateParticles(t = 0) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  particles.forEach(p => { p.update(t); p.draw(t); });
-  animFrameId = requestAnimationFrame(animateParticles);
+  particles.forEach(p => { p.update(); p.draw(t); });
+  requestAnimationFrame(animateParticles);
 }
 
-window.addEventListener('resize', () => {
-  resizeCanvas();
-  initParticles();
-});
+window.addEventListener('resize', () => { resizeCanvas(); initParticles(); });
+resizeCanvas(); initParticles(); animateParticles();
 
-resizeCanvas();
-initParticles();
-animateParticles();
-
-// ── Genre Data ──
+// ── Data ──
 const GENRES = [
   { label: 'Action', icon: '⚔️' },
   { label: 'Adventure', icon: '🗺️' },
   { label: 'Fantasy', icon: '🌌' },
-  { label: 'Dark Fantasy', icon: '🖤' },
   { label: 'Romance', icon: '🌸' },
-  { label: 'Isekai', icon: '🌀' },
-  { label: 'Horror', icon: '👁️' },
-  { label: 'Thriller', icon: '🔪' },
-  { label: 'Sci-Fi', icon: '🚀' },
-  { label: 'Mecha', icon: '🤖' },
-  { label: 'Slice of Life', icon: '☕' },
   { label: 'Comedy', icon: '😂' },
   { label: 'Drama', icon: '🎭' },
+  { label: 'Slice of Life', icon: '☕' },
+  { label: 'Horror', icon: '👁️' },
   { label: 'Mystery', icon: '🔍' },
+  { label: 'Psychological', icon: '🧠' },
+  { label: 'Sci-Fi', icon: '🚀' },
+  { label: 'Historical', icon: '📜' },
   { label: 'Sports', icon: '⚽' },
   { label: 'Martial Arts', icon: '🥋' },
   { label: 'Supernatural', icon: '👻' },
-  { label: 'Historical', icon: '📜' },
-  { label: 'Psychological', icon: '🧠' },
-  { label: 'Overpowered MC', icon: '💥' },
-  { label: 'Cultivation', icon: '🐉' },
-  { label: 'System', icon: '📊' },
-  { label: 'Dungeon', icon: '🏚️' },
-  { label: 'Harem', icon: '💞' },
 ];
 
-// ── DOM Refs ──
+const TAGS = [
+  'Isekai', 'Regression', 'System', 'Dungeon', 'Hunter',
+  'Murim', 'Cultivation', 'Reincarnation', 'Villainess', 'Magic',
+  'School Life', 'Survival', 'Time Travel', 'Revenge', 'OP MC',
+  'Kingdom Building', 'Academy', 'Demons', 'Necromancer', 'Tower Climbing',
+];
+
+// ── State ──
+let selectedGenres = new Set();
+let selectedTags = new Set();
+
+// ── DOM ──
+const viewDiscovery = document.getElementById('view-discovery');
+const viewResults = document.getElementById('view-results');
 const genreGrid = document.getElementById('genre-grid');
+const tagsGrid = document.getElementById('tags-grid');
 const customInput = document.getElementById('custom-input');
-const searchBtn = document.getElementById('search-btn');
+const discoverBtn = document.getElementById('discover-btn');
+const backBtn = document.getElementById('back-btn');
 const loadingEl = document.getElementById('loading');
-const resultsSection = document.getElementById('results-section');
+const resultsContent = document.getElementById('results-content');
 const cardsGrid = document.getElementById('cards-grid');
 const resultsTitle = document.getElementById('results-title');
 const resultsMeta = document.getElementById('results-meta');
 const errorMsg = document.getElementById('error-msg');
-
-let selectedGenre = null;
+const resultsQueryTags = document.getElementById('results-query-tags');
+const navLogoBtn = document.getElementById('nav-logo-btn');
 
 // ── Build Genre Grid ──
 GENRES.forEach(g => {
@@ -130,82 +120,118 @@ GENRES.forEach(g => {
   btn.className = 'genre-btn';
   btn.innerHTML = `<span class="genre-icon">${g.icon}</span>${g.label}`;
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    selectedGenre = g.label;
-    customInput.value = '';
+    btn.classList.toggle('active');
+    if (selectedGenres.has(g.label)) selectedGenres.delete(g.label);
+    else selectedGenres.add(g.label);
   });
   genreGrid.appendChild(btn);
 });
 
-// ── Custom input clears genre selection ──
-customInput.addEventListener('input', () => {
-  if (customInput.value.trim()) {
-    document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
-    selectedGenre = null;
-  }
+// ── Build Tags Grid ──
+TAGS.forEach(tag => {
+  const btn = document.createElement('button');
+  btn.className = 'tag-btn';
+  btn.textContent = tag;
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('active');
+    if (selectedTags.has(tag)) selectedTags.delete(tag);
+    else selectedTags.add(tag);
+  });
+  tagsGrid.appendChild(btn);
 });
 
-// ── Search ──
-searchBtn.addEventListener('click', fetchRecommendations);
+// ── View Switching ──
+function showResults() {
+  viewDiscovery.classList.add('view-exit');
+  setTimeout(() => {
+    viewDiscovery.style.display = 'none';
+    viewDiscovery.classList.remove('view-exit');
+    viewResults.style.display = 'block';
+    viewResults.classList.add('view-enter');
+    setTimeout(() => viewResults.classList.remove('view-enter'), 600);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, 400);
+}
 
-customInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') fetchRecommendations();
+function showDiscovery() {
+  viewResults.classList.add('view-exit');
+  setTimeout(() => {
+    viewResults.style.display = 'none';
+    viewResults.classList.remove('view-exit');
+    viewDiscovery.style.display = 'block';
+    viewDiscovery.classList.add('view-enter');
+    setTimeout(() => viewDiscovery.classList.remove('view-enter'), 600);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, 400);
+}
+
+backBtn.addEventListener('click', showDiscovery);
+navLogoBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (viewResults.style.display === 'block') showDiscovery();
 });
+
+// ── Discover ──
+discoverBtn.addEventListener('click', fetchRecommendations);
+customInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchRecommendations(); });
 
 async function fetchRecommendations() {
-  const query = customInput.value.trim() || selectedGenre;
-  if (!query) {
-    shakeInput();
+  const genres = [...selectedGenres];
+  const tags = [...selectedTags];
+  const custom = customInput.value.trim();
+
+  if (!genres.length && !tags.length && !custom) {
+    shakeDiscoverBtn();
     return;
   }
 
-  // UI state: loading
-  searchBtn.disabled = true;
-  loadingEl.style.display = 'block';
-  resultsSection.style.display = 'none';
-  errorMsg.style.display = 'none';
-  cardsGrid.innerHTML = '';
+  // Build query string for display
+  const queryParts = [...genres, ...tags, custom].filter(Boolean);
 
-  // Scroll to loading
-  loadingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Show results view with loading
+  showResults();
 
-  try {
-    const res = await fetch('/api/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        genre: selectedGenre,
-        customInput: customInput.value.trim(),
-      }),
-    });
+  setTimeout(async () => {
+    loadingEl.style.display = 'block';
+    resultsContent.style.display = 'none';
+    errorMsg.style.display = 'none';
+    cardsGrid.innerHTML = '';
 
-    const data = await res.json();
+    // Render query tags
+    resultsQueryTags.innerHTML = queryParts.map(q =>
+      `<span class="query-tag">${q}</span>`
+    ).join('');
 
-    if (!res.ok || !data.recommendations) {
-      throw new Error(data.error || 'Something went wrong');
+    try {
+      const res = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ genres, tags, customInput: custom }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.recommendations) throw new Error(data.error || 'Something went wrong');
+
+      renderCards(data.recommendations, queryParts);
+    } catch (err) {
+      errorMsg.textContent = `⚠ ${err.message}`;
+      errorMsg.style.display = 'block';
+    } finally {
+      loadingEl.style.display = 'none';
     }
-
-    renderCards(data.recommendations, query);
-  } catch (err) {
-    console.error(err);
-    errorMsg.textContent = `⚠ ${err.message || 'Failed to fetch recommendations. Try again.'}`;
-    errorMsg.style.display = 'block';
-  } finally {
-    loadingEl.style.display = 'none';
-    searchBtn.disabled = false;
-  }
+  }, 450);
 }
 
 // ── Render Cards ──
-function renderCards(recs, query) {
+function renderCards(recs, queryParts) {
   cardsGrid.innerHTML = '';
 
-  resultsTitle.textContent = `Results for "${query}"`;
+  const label = queryParts.slice(0, 3).join(' · ') + (queryParts.length > 3 ? ' · ...' : '');
+  resultsTitle.textContent = label;
   resultsMeta.textContent = `${recs.length} titles found`;
 
-  recs.forEach((r, i) => {
-    const typeClass = r.type?.toLowerCase().replace(' ', '') === 'light novel' ? 'ln'
+  recs.forEach(r => {
+    const typeClass = r.type?.toLowerCase() === 'light novel' ? 'ln'
       : r.type?.toLowerCase() === 'manhwa' ? 'manhwa'
       : r.type?.toLowerCase() === 'manhua' ? 'manhua'
       : '';
@@ -241,19 +267,17 @@ function renderCards(recs, query) {
     cardsGrid.appendChild(card);
   });
 
-  resultsSection.style.display = 'block';
-  resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  resultsContent.style.display = 'block';
 }
 
-// ── Shake animation for empty input ──
-function shakeInput() {
-  customInput.style.animation = 'none';
-  customInput.offsetHeight; // reflow
-  customInput.style.animation = 'shake 0.4s ease';
-  customInput.focus();
+// ── Shake ──
+function shakeDiscoverBtn() {
+  discoverBtn.style.animation = 'none';
+  discoverBtn.offsetHeight;
+  discoverBtn.style.animation = 'shake 0.4s ease';
+  setTimeout(() => discoverBtn.style.animation = '', 400);
 }
 
-// inject shake keyframes
 const shakeStyle = document.createElement('style');
 shakeStyle.textContent = `
   @keyframes shake {

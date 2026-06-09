@@ -3,13 +3,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { genre, customInput } = req.body;
+  const { genres, tags, customInput } = req.body;
 
-  if (!genre && !customInput) {
+  if (!genres?.length && !tags?.length && !customInput) {
     return res.status(400).json({ error: "Genre or custom input is required" });
   }
 
-  const userQuery = customInput || genre;
+  const userQuery = [
+    ...(genres || []),
+    ...(tags || []),
+    customInput
+  ].filter(Boolean).join(", ");
 
   const prompt = `You are Kindoku, an expert recommender of Manga, Manhwa, Manhua, and Light Novels. 
 A user is looking for recommendations based on: "${userQuery}"
