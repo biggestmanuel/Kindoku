@@ -222,7 +222,7 @@ async function fetchRecommendations() {
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ genres, tags, formats, customInput: custom, exclude: [] }),
+        body: JSON.stringify({ genres, tags, formats: [...selectedFormats], customInput: custom, exclude: [] }),
       });
 
       const data = await res.json();
