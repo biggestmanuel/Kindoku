@@ -14,6 +14,7 @@ query ($search: String) {
       siteUrl
       format
       countryOfOrigin
+      externalLinks { url site }
     }
   }
 }`;
@@ -65,6 +66,22 @@ async function fetchAnilistData(title) {
       .trim()
       .slice(0, 400) + (rawDesc.length > 400 ? "…" : "");
 
+    // ── Pull a real reading link from AniList's externalLinks ──
+    // Priority: MangaDex > Webtoon > MangaPlus > NovelUpdates > Tapas > any other
+    const READING_SITES = [
+      "MangaDex", "Webtoon", "MangaPlus", "NovelUpdates",
+      "Tapas", "Tappytoon", "Pocket Comics", "Lezhin",
+    ];
+    let readUrl = null;
+    if (media.externalLinks?.length) {
+      for (const site of READING_SITES) {
+        const link = media.externalLinks.find(
+          l => l.site?.toLowerCase().includes(site.toLowerCase())
+        );
+        if (link?.url) { readUrl = link.url; break; }
+      }
+    }
+
     return {
       title: media.title.english || media.title.romaji || title,
       type,
@@ -74,10 +91,28 @@ async function fetchAnilistData(title) {
       rating: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
       coverImage: media.coverImage?.large || media.coverImage?.medium || null,
       anilistUrl: media.siteUrl || null,
+      readUrl,   // real link or null — will fall back below
     };
   } catch {
     return null;
   }
+}
+
+// ── Build a reliable search-based read URL from the title + type ───────────
+function buildSearchReadUrl(title, type) {
+  const q = encodeURIComponent(title);
+  if (type === "Light Novel") {
+    return `https://www.novelupdates.com/?s=${q}`;
+  }
+  if (type === "Manhwa") {
+    // Webtoon search as primary for Manhwa
+    return `https://www.webtoons.com/en/search?keyword=${q}`;
+  }
+  if (type === "Manhua") {
+    return `https://mangadex.org/search?q=${q}`;
+  }
+  // Default: Manga → MangaDex
+  return `https://mangadex.org/search?q=${q}`;
 }
 
 export default async function handler(req, res) {
@@ -110,7 +145,6 @@ Each object must have:
   "synopsis": "2-3 sentence synopsis",
   "status": "Ongoing" | "Completed",
   "rating": "number like 8.5",
-  "readUrl": "direct URL on MangaDex, Webtoon, MangaPlus, or NovelUpdates",
   "coverHint": "brief visual description of art style"
 }
 Only return the JSON array. No other text.`;
@@ -128,7 +162,6 @@ Each object must have:
   "synopsis": "2-3 sentence synopsis",
   "status": "Ongoing" | "Completed",
   "rating": "number like 8.5",
-  "readUrl": "direct URL on MangaDex, Webtoon, MangaPlus, or NovelUpdates",
   "coverHint": "brief visual description of art style"
 }
 Only return the JSON array. No other text.`;
@@ -162,7 +195,6 @@ Each object must have:
   "synopsis": "2-3 sentence synopsis",
   "status": "Ongoing" | "Completed",
   "rating": "number like 8.5",
-  "readUrl": "direct URL on MangaDex, Webtoon, MangaPlus, or NovelUpdates",
   "coverHint": "brief visual description of art style"
 }
 Only return the JSON array. No other text.`;
@@ -231,20 +263,32 @@ Only return the JSON array. No other text.`;
     aiRecs.map(async (rec) => {
       const aniData = await fetchAnilistData(rec.title);
 
+      // Determine final type (needed for search URL fallback)
+      const finalType = aniData?.type || rec.type || "Manga";
+      const finalTitle = aniData?.title || rec.title;
+
+      // Read URL priority:
+      // 1. Real link from AniList externalLinks
+      // 2. Search URL built from the real title + type (always works)
+      const readUrl = aniData?.readUrl || buildSearchReadUrl(finalTitle, finalType);
+
       if (!aniData) {
-        return rec;
+        return {
+          ...rec,
+          readUrl,
+        };
       }
 
       return {
-        title: aniData.title || rec.title,
-        type: aniData.type || rec.type,
+        title: finalTitle,
+        type: finalType,
         genre: aniData.genre?.length ? aniData.genre : rec.genre,
         synopsis: aniData.synopsis || rec.synopsis,
         status: aniData.status || rec.status,
         rating: aniData.rating || rec.rating,
         coverImage: aniData.coverImage,
-        readUrl: rec.readUrl,
         coverHint: aniData.coverImage ? null : rec.coverHint,
+        readUrl,
       };
     })
   );
