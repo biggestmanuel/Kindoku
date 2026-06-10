@@ -25,12 +25,10 @@
       <p class="nav-tagline">Manga · Manhwa · Manhua · Light Novels</p>
     </nav>
 
-    <!-- ════════════════════════════════
-         VIEW 1 — DISCOVERY
-    ════════════════════════════════ -->
-    <div id="view-discovery">
-
-      <!-- Hero -->
+    <!-- ════════════════════════
+         VIEW: LANDING
+    ════════════════════════ -->
+    <div id="view-landing">
       <section id="hero">
         <p class="hero-kana">金 · 흑 · 読 · きんどく</p>
         <h1 class="hero-title">
@@ -45,28 +43,62 @@
           <span class="hero-lang-tag"><span>흑</span> Black · Korean</span>
           <span class="hero-lang-tag"><span>読</span> Read · Chinese</span>
         </div>
-        <div class="scroll-hint">
-          <span>Explore</span>
-          <div class="scroll-line"></div>
+        <div class="hero-actions">
+          <button class="hero-btn hero-btn-search" id="btn-go-search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            Search
+          </button>
+          <button class="hero-btn hero-btn-discover" id="btn-go-discover">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            Discover
+          </button>
         </div>
       </section>
+    </div>
 
-      <!-- Search Section -->
-      <section id="search-section">
+    <!-- ════════════════════════
+         VIEW: SEARCH
+    ════════════════════════ -->
+    <div id="view-search">
+      <div class="search-fullscreen">
+        <button class="back-top-btn" id="search-back-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back
+        </button>
+        <div class="search-center">
+          <p class="search-eyebrow">金 · 흑 · 読</p>
+          <h2 class="search-heading">What are you looking for?</h2>
+          <p class="search-hint">Enter the name of a Manga, Manhwa, Manhua or Light Novel<br/>or try <em>"something like Solo Leveling"</em></p>
+          <div class="search-bar-wrapper">
+            <input type="text" id="search-input" placeholder="e.g. Solo Leveling or something like Berserk..." autocomplete="off" />
+            <button id="search-submit-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
-        <!-- Genres -->
+    <!-- ════════════════════════
+         VIEW: DISCOVER
+    ════════════════════════ -->
+    <div id="view-discover">
+      <section id="discover-section">
+        <button class="back-top-btn" id="discover-back-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back
+        </button>
+
         <p class="section-label">Pick Your Genres</p>
         <h2 class="section-title">What are you in the mood for?</h2>
         <div class="genre-grid" id="genre-grid"></div>
 
-        <!-- Tags -->
-        <p class="section-label" style="margin-top: 40px;">Add Tags</p>
-        <h2 class="section-title" style="font-size: clamp(1rem, 2.5vw, 1.4rem);">Narrow it down</h2>
+        <p class="section-label" style="margin-top:40px;">Add Tags</p>
+        <h2 class="section-title" style="font-size:clamp(1rem,2.5vw,1.4rem);">Narrow it down</h2>
         <div class="tags-grid" id="tags-grid"></div>
 
-        <!-- Format Selector -->
-        <p class="section-label" style="margin-top: 40px;">Format</p>
-        <h2 class="section-title" style="font-size: clamp(1rem, 2.5vw, 1.4rem);">What type?</h2>
+        <p class="section-label" style="margin-top:40px;">Format</p>
+        <h2 class="section-title" style="font-size:clamp(1rem,2.5vw,1.4rem);">What type?</h2>
         <div class="format-grid" id="format-grid">
           <button class="format-btn" data-format="Manga">📖 Manga</button>
           <button class="format-btn" data-format="Manhwa">🎨 Manhwa</button>
@@ -74,31 +106,21 @@
           <button class="format-btn" data-format="Light Novel">📚 Light Novel</button>
         </div>
 
-        <!-- Custom Input -->
         <div class="custom-input-wrapper">
-          <input
-            type="text"
-            id="custom-input"
-            placeholder="Describe anything extra... e.g. 'dark revenge story with a cold MC'"
-            autocomplete="off"
-          />
+          <input type="text" id="custom-input" placeholder="Describe anything extra... e.g. 'dark revenge story with a cold MC'" autocomplete="off" />
         </div>
 
         <button id="discover-btn">
           <span>Discover</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </button>
-
       </section>
-
     </div>
 
-    <!-- ════════════════════════════════
-         VIEW 2 — RESULTS
-    ════════════════════════════════ -->
+    <!-- ════════════════════════
+         VIEW: RESULTS
+    ════════════════════════ -->
     <div id="view-results">
-
-      <!-- Results Nav -->
       <div class="results-nav">
         <button id="back-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
@@ -107,21 +129,16 @@
         <div class="results-query-tags" id="results-query-tags"></div>
       </div>
 
-      <!-- Loading -->
       <div id="loading">
         <div class="loading-inner">
           <div class="loading-kanji">読</div>
           <p class="loading-text">Searching the archives</p>
-          <div class="loading-dots">
-            <span></span><span></span><span></span>
-          </div>
+          <div class="loading-dots"><span></span><span></span><span></span></div>
         </div>
       </div>
 
-      <!-- Error -->
       <p id="error-msg"></p>
 
-      <!-- Cards -->
       <div id="results-content" style="display:none;">
         <div class="results-header">
           <h2 class="results-title" id="results-title"></h2>
@@ -136,10 +153,8 @@
           </button>
         </div>
       </div>
-
     </div>
 
-    <!-- Footer -->
     <footer>
       <p class="footer-logo">Kindoku</p>
       <p class="footer-text">Discover. Read. Obsess.</p>
