@@ -66,11 +66,14 @@ async function fetchAnilistData(title) {
       .trim()
       .slice(0, 400) + (rawDesc.length > 400 ? "…" : "");
 
-    // ── Pull a real reading link from AniList's externalLinks ──
-    // Priority: MangaDex > Webtoon > MangaPlus > NovelUpdates > Tapas > any other
+    // Pull a real reading link from AniList's externalLinks.
+    // Priority order: fast no-verification sites first, MangaDex/NovelUpdates last.
     const READING_SITES = [
-      "MangaDex", "Webtoon", "MangaPlus", "NovelUpdates",
+      "MangaFire",
+      "Webtoon", "MangaPlus",
       "Tapas", "Tappytoon", "Pocket Comics", "Lezhin",
+      "MangaDex",      // deprioritised — Cloudflare wall
+      "NovelUpdates",  // deprioritised — long verification loop
     ];
     let readUrl = null;
     if (media.externalLinks?.length) {
@@ -99,20 +102,33 @@ async function fetchAnilistData(title) {
 }
 
 // ── Build a reliable search-based read URL from the title + type ───────────
+// Sites chosen for: no Cloudflare verification wall, no long captcha on tab-return,
+// fast load, free access.
+//
+// AVOIDED:
+//   MangaDex     → Cloudflare wall, slow cold loads
+//   NovelUpdates → Long Cloudflare verification loop on tab re-focus
+//   Webtoons     → Official only, misses most manhwa scans
+//
+// USED INSTEAD:
+//   MangaFire (mangafire.to)       → Fast, clean, no-verification, manga+manhwa+manhua
+//   MangaKakalot (mangakakalot.gg) → Fast daily updates, no verification, broad library
+//   LightNovelWorld                → Clean LN reader, no Cloudflare wall
+//   FreeWebNovel                   → Good fallback for LNs, no verification
+
 function buildSearchReadUrl(title, type) {
   const q = encodeURIComponent(title);
+
   if (type === "Light Novel") {
-    return `https://www.novelupdates.com/?s=${q}`;
+    // LightNovelWorld: clean, fast, no verification wall
+    return `https://www.lightnovelworld.com/search?title=${q}`;
   }
-  if (type === "Manhwa") {
-    // Webtoon search as primary for Manhwa
-    return `https://www.webtoons.com/en/search?keyword=${q}`;
+  if (type === "Manhwa" || type === "Manhua") {
+    // MangaFire: handles manhwa + manhua well, no Cloudflare annoyance
+    return `https://mangafire.to/filter?keyword=${q}`;
   }
-  if (type === "Manhua") {
-    return `https://mangadex.org/search?q=${q}`;
-  }
-  // Default: Manga → MangaDex
-  return `https://mangadex.org/search?q=${q}`;
+  // Manga default → MangaFire covers it cleanly too
+  return `https://mangafire.to/filter?keyword=${q}`;
 }
 
 export default async function handler(req, res) {
