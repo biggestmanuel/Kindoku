@@ -1,4 +1,3 @@
-// Kindoku v2
 // ── Particle System ──
 const canvas = document.getElementById('particle-canvas');
 const ctx = canvas.getContext('2d');
@@ -96,8 +95,9 @@ const TAGS = [
 
 // ── State ──
 let selectedGenres = new Set();
+let selectedFormats = new Set();
 let selectedTags = new Set();
-let currentQuery = { genres: [], tags: [], customInput: '' };
+let currentQuery = { genres: [], tags: [], formats: [], customInput: '' };
 let allTitles = [];
 
 // ── DOM ──
@@ -130,6 +130,16 @@ GENRES.forEach(g => {
     else selectedGenres.add(g.label);
   });
   genreGrid.appendChild(btn);
+});
+
+// ── Build Format Selector ──
+document.querySelectorAll(".format-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    btn.classList.toggle("active");
+    const fmt = btn.dataset.format;
+    if (selectedFormats.has(fmt)) selectedFormats.delete(fmt);
+    else selectedFormats.add(fmt);
+  });
 });
 
 // ── Build Tags Grid ──
@@ -191,7 +201,7 @@ async function fetchRecommendations() {
   }
 
   // Save query for Load More
-  currentQuery = { genres, tags, customInput: custom };
+  currentQuery = { genres, tags, formats, customInput: custom };
   allTitles = [];
 
   const queryParts = [...genres, ...tags, custom].filter(Boolean);
@@ -212,7 +222,7 @@ async function fetchRecommendations() {
       const res = await fetch('/api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ genres, tags, customInput: custom, exclude: [] }),
+        body: JSON.stringify({ genres, tags, formats, customInput: custom, exclude: [] }),
       });
 
       const data = await res.json();
@@ -286,6 +296,7 @@ loadMoreBtn.addEventListener('click', async () => {
       body: JSON.stringify({
         genres: currentQuery.genres,
         tags: currentQuery.tags,
+        formats: currentQuery.formats,
         customInput: currentQuery.customInput,
         exclude: allTitles,
       }),
@@ -317,7 +328,6 @@ function shakeDiscoverBtn() {
   discoverBtn.style.animation = 'shake 0.4s ease';
   setTimeout(() => discoverBtn.style.animation = '', 400);
 }
-
 
 const shakeStyle = document.createElement('style');
 shakeStyle.textContent = `

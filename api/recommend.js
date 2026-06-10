@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { genres, tags, customInput, exclude } = req.body;
+  const { genres, tags, formats, customInput, exclude } = req.body;
 
   if (!genres?.length && !tags?.length && !customInput) {
     return res.status(400).json({ error: "Please select a genre, tag, or describe what you want." });
@@ -14,12 +14,17 @@ export default async function handler(req, res) {
   const userQuery = [...(genres || []), ...(tags || []), customInput]
     .filter(Boolean).join(", ");
 
+  const formatClause = formats?.length
+    ? `\nOnly recommend these formats: ${formats.join(", ")}.`
+    : "";
+
   const excludeClause = exclude?.length
     ? `\nDo NOT recommend any of these titles (already shown): ${exclude.join(", ")}.`
     : "";
 
   const prompt = `You are Kindoku, an expert recommender of Manga, Manhwa, Manhua, and Light Novels.
 A user is looking for recommendations based on: "${userQuery}"
+${formatClause}
 ${excludeClause}
 
 Return ONLY a valid JSON array (no markdown, no explanation, no backticks) with exactly 10 recommendations.
