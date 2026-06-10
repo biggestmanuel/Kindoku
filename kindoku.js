@@ -201,7 +201,7 @@ async function fetchRecommendations() {
   }
 
   // Save query for Load More
-  currentQuery = { genres, tags, formats, customInput: custom };
+  currentQuery = { genres, tags, formats: [...selectedFormats], customInput: custom };
   allTitles = [];
 
   const queryParts = [...genres, ...tags, custom].filter(Boolean);
