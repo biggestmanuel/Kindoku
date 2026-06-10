@@ -1,9 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Noto+Sans+JP:wght@300;400;700&display=swap');
 
 :root {
-  --gold: #e8b84b;
-  --gold-light: #ffd97a;
-  --gold-dim: #9a7530;
+  --gold: #d4a86a;
+  --gold-light: #e8c896;
+  --gold-dim: #8a6f42;
   --black: #0d0b08;
   --black-2: #131109;
   --black-3: #1c1910;
@@ -11,13 +11,16 @@
   --black-5: #332e20;
   --red-accent: #c0392b;
   --red-light: #e74c3c;
+  --red-bright: #ff6b6b;
   --teal: #1abc9c;
+  --teal-bright: #2dd4bf;
   --teal-dim: rgba(26,188,156,0.15);
+  --purple: #b77dff;
   --text-primary: #f5e6c0;
   --text-secondary: #c4a96a;
   --text-muted: #7a6840;
-  --border: rgba(232,184,75,0.22);
-  --border-hover: rgba(232,184,75,0.7);
+  --border: rgba(212,168,106,0.12);
+  --border-hover: rgba(212,168,106,0.35);
   --card-bg: rgba(20,17,10,0.95);
   --card-bg-hover: rgba(30,26,15,0.98);
   --radius: 6px;
@@ -59,19 +62,19 @@ body {
 }
 .ink-blob-1 {
   width: 700px; height: 700px;
-  background: radial-gradient(circle, rgba(232,184,75,0.07) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(212,168,106,0.05) 0%, transparent 70%);
   top: -250px; right: -200px;
   animation: blobFloat 12s ease-in-out infinite;
 }
 .ink-blob-2 {
   width: 600px; height: 600px;
-  background: radial-gradient(circle, rgba(192,57,43,0.09) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(255,107,107,0.07) 0%, transparent 70%);
   bottom: -150px; left: -150px;
   animation: blobFloat 16s ease-in-out infinite reverse;
 }
 .ink-blob-3 {
   width: 500px; height: 500px;
-  background: radial-gradient(circle, rgba(26,188,156,0.05) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(45,212,191,0.08) 0%, transparent 70%);
   top: 50%; left: 30%;
   animation: blobFloat 20s ease-in-out infinite;
 }
@@ -182,12 +185,12 @@ nav {
   animation: fadeUp 0.8s ease forwards 0.5s;
 }
 .hero-title .gold-text {
-  background: linear-gradient(135deg, #ffd97a 0%, #e8b84b 40%, #9a7530 100%);
+  background: linear-gradient(135deg, #e8c896 0%, #d4a86a 40%, #8a6f42 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   display: block;
-  filter: drop-shadow(0 0 40px rgba(232,184,75,0.4));
+  filter: drop-shadow(0 0 40px rgba(212,168,106,0.25));
 }
 .hero-title .red-text {
   font-size: 0.4em;
@@ -310,8 +313,18 @@ nav {
   border-color: var(--gold);
   color: var(--gold-light);
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(232,184,75,0.15);
+  box-shadow: 0 4px 20px rgba(212,168,106,0.12);
   background: var(--black-4);
+}
+.genre-btn:nth-child(3n+1):hover {
+  border-color: var(--red-light);
+  color: var(--red-bright);
+  box-shadow: 0 4px 20px rgba(255,107,107,0.15);
+}
+.genre-btn:nth-child(3n+2):hover {
+  border-color: var(--teal);
+  color: var(--teal-bright);
+  box-shadow: 0 4px 20px rgba(45,212,191,0.15);
 }
 .genre-btn.active {
   background: linear-gradient(135deg, rgba(232,184,75,0.18), rgba(232,184,75,0.06));
@@ -341,9 +354,19 @@ nav {
   transition: all 0.2s ease;
 }
 .tag-btn:hover {
-  border-color: var(--gold);
-  color: var(--gold-light);
-  background: rgba(232,184,75,0.07);
+  border-color: var(--teal);
+  color: var(--teal-bright);
+  background: rgba(45,212,191,0.08);
+}
+.tag-btn:nth-child(2):hover {
+  border-color: var(--red-light);
+  color: var(--red-bright);
+  background: rgba(255,107,107,0.08);
+}
+.tag-btn:nth-child(3):hover {
+  border-color: var(--purple);
+  color: var(--purple);
+  background: rgba(183,125,255,0.08);
 }
 .tag-btn.active {
   background: linear-gradient(135deg, rgba(232,184,75,0.2), rgba(232,184,75,0.08));
@@ -382,9 +405,9 @@ nav {
 }
 #custom-input::placeholder { color: var(--text-muted); }
 #custom-input:focus {
-  border-color: var(--gold);
+  border-color: var(--teal);
   background: var(--black-4);
-  box-shadow: 0 0 0 3px rgba(232,184,75,0.1);
+  box-shadow: 0 0 0 3px rgba(45,212,191,0.12);
 }
 
 /* ── Discover Button ── */
@@ -396,7 +419,7 @@ nav {
   width: 100%;
   max-width: 340px;
   margin: 0 auto 80px;
-  background: linear-gradient(135deg, var(--gold-light), var(--gold), var(--gold-dim));
+  background: linear-gradient(135deg, #e8c896, #d4a86a, #8a6f42);
   border: none;
   border-radius: var(--radius);
   color: #0d0b08;
@@ -410,9 +433,9 @@ nav {
   text-transform: uppercase;
 }
 #discover-btn:hover {
-  background: linear-gradient(135deg, #fff0a0, var(--gold-light), var(--gold));
+  background: linear-gradient(135deg, var(--teal-bright), var(--gold-light), var(--red-bright));
   transform: translateY(-3px);
-  box-shadow: 0 8px 32px rgba(232,184,75,0.4);
+  box-shadow: 0 8px 32px rgba(45,212,191,0.3);
 }
 #discover-btn:active { transform: translateY(0); }
 
@@ -442,8 +465,8 @@ nav {
   white-space: nowrap;
 }
 #back-btn:hover {
-  border-color: var(--gold);
-  color: var(--gold);
+  border-color: var(--red-light);
+  color: var(--red-bright);
 }
 .results-query-tags {
   display: flex;
@@ -561,7 +584,7 @@ nav {
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  background: linear-gradient(90deg, transparent, var(--teal-bright), transparent);
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -572,10 +595,10 @@ nav {
 .card:nth-child(7){animation-delay:0.35s} .card:nth-child(8){animation-delay:0.4s}
 @keyframes cardReveal { to { opacity: 1; transform: translateY(0); } }
 .card:hover {
-  border-color: rgba(232,184,75,0.4);
+  border-color: rgba(45,212,191,0.4);
   transform: translateY(-5px);
   background: var(--card-bg-hover);
-  box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 40px rgba(232,184,75,0.08);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6), 0 0 40px rgba(45,212,191,0.12);
 }
 
 .card-top {
@@ -631,8 +654,8 @@ nav {
 .card-footer { padding: 0 20px 20px; }
 .read-btn {
   display: block; width: 100%;
-  background: linear-gradient(135deg, rgba(232,184,75,0.08), rgba(232,184,75,0.02));
-  border: 1px solid rgba(232,184,75,0.25);
+  background: linear-gradient(135deg, rgba(212,168,106,0.06), rgba(212,168,106,0.02));
+  border: 1px solid rgba(212,168,106,0.18);
   border-radius: var(--radius); color: var(--gold);
   font-family: 'Zen Kaku Gothic New', sans-serif;
   font-size: 0.75rem; font-weight: 700; letter-spacing: 0.2em;
@@ -640,9 +663,9 @@ nav {
   text-transform: uppercase; transition: all 0.25s ease; cursor: pointer;
 }
 .read-btn:hover {
-  background: linear-gradient(135deg, rgba(232,184,75,0.2), rgba(232,184,75,0.08));
-  border-color: var(--gold); color: var(--gold-light);
-  box-shadow: 0 0 24px rgba(232,184,75,0.2);
+  background: linear-gradient(135deg, rgba(45,212,191,0.12), rgba(212,168,106,0.06));
+  border-color: var(--teal); color: var(--teal-bright);
+  box-shadow: 0 0 24px rgba(45,212,191,0.15);
 }
 
 /* ── Error ── */
@@ -705,7 +728,7 @@ footer {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: var(--gold);
+  color: var(--teal);
   font-family: 'Cinzel Decorative', serif;
   font-size: 0.75rem;
   font-weight: 700;
@@ -717,10 +740,10 @@ footer {
 }
 
 #load-more-btn:hover {
-  border-color: var(--gold);
-  background: rgba(232,184,75,0.08);
+  border-color: var(--teal);
+  background: rgba(45,212,191,0.08);
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(232,184,75,0.15);
+  box-shadow: 0 6px 24px rgba(45,212,191,0.12);
 }
 
 #load-more-btn:disabled {
@@ -741,4 +764,120 @@ footer {
 @keyframes spinDown {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ── Format Selector ── */
+.format-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.format-btn {
+  background: var(--black-3);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 10px 22px;
+  font-family: 'Zen Kaku Gothic New', sans-serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.format-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-light);
+  background: rgba(232,184,75,0.07);
+  transform: translateY(-2px);
+}
+
+.format-btn.active {
+  background: linear-gradient(135deg, rgba(232,184,75,0.18), rgba(232,184,75,0.06));
+  border-color: var(--gold);
+  color: var(--gold-light);
+  box-shadow: 0 0 20px rgba(232,184,75,0.2);
+}
+
+.format-btn[data-format="Manhwa"].active {
+  background: linear-gradient(135deg, rgba(192,57,43,0.18), rgba(192,57,43,0.06));
+  border-color: var(--red-light);
+  color: var(--red-light);
+  box-shadow: 0 0 20px rgba(192,57,43,0.2);
+}
+
+.format-btn[data-format="Manhua"].active {
+  background: var(--teal-dim);
+  border-color: var(--teal);
+  color: var(--teal);
+  box-shadow: 0 0 20px rgba(26,188,156,0.2);
+}
+
+.format-btn[data-format="Light Novel"].active {
+  background: rgba(155,89,182,0.15);
+  border-color: #c39bd3;
+  color: #c39bd3;
+  box-shadow: 0 0 20px rgba(155,89,182,0.2);
+}
+
+/* ── Format Selector ── */
+.format-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.format-btn {
+  background: var(--black-3);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 10px 22px;
+  font-family: 'Zen Kaku Gothic New', sans-serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: all 0.25s ease;
+}
+
+.format-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-light);
+  background: rgba(232,184,75,0.07);
+  transform: translateY(-2px);
+}
+
+.format-btn.active {
+  background: linear-gradient(135deg, rgba(232,184,75,0.2), rgba(232,184,75,0.06));
+  border-color: var(--gold);
+  color: var(--gold-light);
+  box-shadow: 0 0 16px rgba(232,184,75,0.2);
+}
+
+/* Color each format differently */
+.format-btn[data-format="Manhwa"].active {
+  background: linear-gradient(135deg, rgba(192,57,43,0.2), rgba(192,57,43,0.06));
+  border-color: var(--red-light);
+  color: var(--red-light);
+  box-shadow: 0 0 16px rgba(192,57,43,0.2);
+}
+
+.format-btn[data-format="Manhua"].active {
+  background: linear-gradient(135deg, rgba(26,188,156,0.2), rgba(26,188,156,0.06));
+  border-color: var(--teal);
+  color: var(--teal);
+  box-shadow: 0 0 16px rgba(26,188,156,0.2);
+}
+
+.format-btn[data-format="Light Novel"].active {
+  background: linear-gradient(135deg, rgba(155,89,182,0.2), rgba(155,89,182,0.06));
+  border-color: #c39bd3;
+  color: #c39bd3;
+  box-shadow: 0 0 16px rgba(155,89,182,0.2);
 }
