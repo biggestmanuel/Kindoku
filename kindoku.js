@@ -87,27 +87,27 @@ let allTitles = [];
 let previousView = 'landing';
 
 // ── DOM ──
-const viewLanding   = document.getElementById('view-landing');
-const viewSearch    = document.getElementById('view-search');
-const viewDiscover  = document.getElementById('view-discover');
-const viewResults   = document.getElementById('view-results');
-const genreGrid     = document.getElementById('genre-grid');
-const tagsGrid      = document.getElementById('tags-grid');
-const customInput   = document.getElementById('custom-input');
-const discoverBtn   = document.getElementById('discover-btn');
-const backBtn       = document.getElementById('back-btn');
-const loadingEl     = document.getElementById('loading');
-const resultsContent= document.getElementById('results-content');
-const cardsGrid     = document.getElementById('cards-grid');
-const resultsTitle  = document.getElementById('results-title');
-const resultsMeta   = document.getElementById('results-meta');
-const errorMsg      = document.getElementById('error-msg');
+const viewLanding    = document.getElementById('view-landing');
+const viewSearch     = document.getElementById('view-search');
+const viewDiscover   = document.getElementById('view-discover');
+const viewResults    = document.getElementById('view-results');
+const genreGrid      = document.getElementById('genre-grid');
+const tagsGrid       = document.getElementById('tags-grid');
+const customInput    = document.getElementById('custom-input');
+const discoverBtn    = document.getElementById('discover-btn');
+const backBtn        = document.getElementById('back-btn');
+const loadingEl      = document.getElementById('loading');
+const resultsContent = document.getElementById('results-content');
+const cardsGrid      = document.getElementById('cards-grid');
+const resultsTitle   = document.getElementById('results-title');
+const resultsMeta    = document.getElementById('results-meta');
+const errorMsg       = document.getElementById('error-msg');
 const resultsQueryTags = document.getElementById('results-query-tags');
-const loadMoreBtn   = document.getElementById('load-more-btn');
-const loadMoreText  = document.getElementById('load-more-text');
-const searchInput   = document.getElementById('search-input');
+const loadMoreBtn    = document.getElementById('load-more-btn');
+const loadMoreText   = document.getElementById('load-more-text');
+const searchInput    = document.getElementById('search-input');
 const searchSubmitBtn = document.getElementById('search-submit-btn');
-const navLogoBtn    = document.getElementById('nav-logo-btn');
+const navLogoBtn     = document.getElementById('nav-logo-btn');
 
 // ── Build Genre Grid ──
 GENRES.forEach(g => {
@@ -282,21 +282,34 @@ function buildCard(r) {
   const statusClass = r.status?.toLowerCase() === 'completed' ? 'completed' : '';
   const genreTags = (r.genre || []).map(g => `<span class="genre-tag">${g}</span>`).join('');
 
+  // Cover: real AniList image OR styled placeholder
+  const coverHTML = r.coverImage
+    ? `<div class="card-cover">
+         <img src="${r.coverImage}" alt="${r.title} cover" loading="lazy" />
+         <div class="card-cover-overlay"></div>
+       </div>`
+    : `<div class="card-cover card-cover--placeholder">
+         <div class="card-cover-placeholder-inner">
+           <span class="placeholder-kanji">読</span>
+           ${r.coverHint ? `<p class="placeholder-hint">${r.coverHint}</p>` : ''}
+         </div>
+       </div>`;
+
   const card = document.createElement('div');
   card.className = 'card';
   card.innerHTML = `
+    ${coverHTML}
     <div class="card-top">
       <div class="card-badges">
         <span class="badge badge-type ${typeClass}">${r.type || 'Manga'}</span>
         <span class="badge badge-status ${statusClass}">${r.status || 'Ongoing'}</span>
       </div>
-      <div class="card-rating">${r.rating || '—'}</div>
+      ${r.rating ? `<div class="card-rating">${r.rating}</div>` : ''}
     </div>
     <div class="card-body">
       <h3 class="card-title">${r.title}</h3>
       <div class="card-genres">${genreTags}</div>
       <p class="card-synopsis">${r.synopsis}</p>
-      ${r.coverHint ? `<p class="card-cover-hint">${r.coverHint}</p>` : ''}
     </div>
     <div class="card-footer">
       <a class="read-btn" href="${r.readUrl}" target="_blank" rel="noopener noreferrer">読む · Read Now</a>
