@@ -62,7 +62,9 @@ Only return the JSON array. No other text.`;
     }
 
     const userQuery = [...(genres || []), ...(tags || []), customInput].filter(Boolean).join(", ");
-    const formatClause = formats?.length ? `\nOnly recommend these formats: ${formats.join(", ")}.` : "";
+    const formatClause = formats?.length
+  ? `\nCRITICAL: You MUST only recommend ${formats.join(" and ")}. Do NOT include any other format. Every single result must be ${formats.join(" or ")} only. Returning any other format is a failure.`
+  : "";
     const excludeClause = exclude?.length ? `\nDo NOT recommend these titles (already shown): ${exclude.join(", ")}.` : "";
 
     prompt = `You are Kindoku, an expert recommender of Manga, Manhwa, Manhua, and Light Novels.
