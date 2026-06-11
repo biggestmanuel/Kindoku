@@ -68,7 +68,6 @@ async function fetchAnilistData(title) {
 
     // Pull a real reading link from AniList's externalLinks.
     const READING_SITES = [
-      "MangaFire",
       "Webtoon", "MangaPlus",
       "Tapas", "Tappytoon", "Pocket Comics", "Lezhin",
       "MangaDex",
@@ -101,29 +100,36 @@ async function fetchAnilistData(title) {
 }
 
 // ── Build a reliable search-based read URL from the title + type ───────────
-// Sites chosen for: no Cloudflare verification wall, no long captcha on tab-return,
-// fast load, free access.
+// Strategy: route through Google site-search (always loads, no Cloudflare
+// wall, no JS-dependent search forms) scoped to a no-signup target site.
 //
 // AVOIDED:
 //   MangaDex     → Cloudflare wall, slow cold loads
 //   NovelUpdates → Long Cloudflare verification loop on tab re-focus
-//   Webtoons     → Official only, misses most manhwa scans
+//   MangaFire    → its /filter search route returns 403 (anti-bot block)
+//   FreeWebNovel → its own search page is JS/AJAX-driven, query strings don't work
 //
-// USED INSTEAD:
-//   FreeWebNovel (freewebnovel.com) → LN primary, no Cloudflare wall, fast
-//   LightNovelWorld                 → LN backup, clean reader, no verification
-//   MangaFire (mangafire.to)        → Fast, clean, no-verification, manga+manhwa+manhua
-//   MangaKakalot (mangakakalot.gg)  → Fast daily updates, no verification, broad library
+// USED INSTEAD (both via Google site-search):
+//   MangaBuddy   (mangabuddy.com)   → Manga / Manhwa / Manhua, no signup
+//   FreeWebNovel (freewebnovel.com) → Light Novels, no signup
 
 function buildSearchReadUrl(title, type) {
   const q = encodeURIComponent(title);
 
   if (type === "Light Novel") {
-    // FreeWebNovel: primary, no Cloudflare wall, fast
-    return `https://freewebnovel.com/search?searchkey=${q}`;
+    // FreeWebNovel's own search page is JS/AJAX-driven — direct query
+    // strings (?searchkey=) don't return results. Route through Google's
+    // site-search instead: no Cloudflare wall, lands on the real novel page.
+    return `https://www.google.com/search?q=site:freewebnovel.com+${q}`;
   }
-  // Manga / Manhwa / Manhua → MangaFire covers all three cleanly
-  return `https://mangafire.to/filter?keyword=${q}`;
+
+  // Manga / Manhwa / Manhua → MangaBuddy
+  // MangaFire's own /filter search route returns 403 (anti-bot block on
+  // that endpoint specifically). MangaBuddy is bigger, no signup required,
+  // covers manga/manhwa/manhua — but same trick: hit it via Google
+  // site-search rather than its own search page, so we never depend on
+  // the target site's search/filter endpoint surviving.
+  return `https://www.google.com/search?q=site:mangabuddy.com+${q}`;
 }
 
 export default async function handler(req, res) {
