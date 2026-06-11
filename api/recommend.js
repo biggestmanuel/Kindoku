@@ -67,13 +67,12 @@ async function fetchAnilistData(title) {
       .slice(0, 400) + (rawDesc.length > 400 ? "…" : "");
 
     // Pull a real reading link from AniList's externalLinks.
-    // Priority order: fast no-verification sites first, MangaDex/NovelUpdates last.
     const READING_SITES = [
       "MangaFire",
       "Webtoon", "MangaPlus",
       "Tapas", "Tappytoon", "Pocket Comics", "Lezhin",
-      "MangaDex",      // deprioritised — Cloudflare wall
-      "NovelUpdates",  // deprioritised — long verification loop
+      "MangaDex",
+      "NovelUpdates",
     ];
     let readUrl = null;
     if (media.externalLinks?.length) {
@@ -111,23 +110,19 @@ async function fetchAnilistData(title) {
 //   Webtoons     → Official only, misses most manhwa scans
 //
 // USED INSTEAD:
-//   MangaFire (mangafire.to)       → Fast, clean, no-verification, manga+manhwa+manhua
-//   MangaKakalot (mangakakalot.gg) → Fast daily updates, no verification, broad library
-//   LightNovelWorld                → Clean LN reader, no Cloudflare wall
-//   FreeWebNovel                   → Good fallback for LNs, no verification
+//   FreeWebNovel (freewebnovel.com) → LN primary, no Cloudflare wall, fast
+//   LightNovelWorld                 → LN backup, clean reader, no verification
+//   MangaFire (mangafire.to)        → Fast, clean, no-verification, manga+manhwa+manhua
+//   MangaKakalot (mangakakalot.gg)  → Fast daily updates, no verification, broad library
 
 function buildSearchReadUrl(title, type) {
   const q = encodeURIComponent(title);
 
   if (type === "Light Novel") {
-    // LightNovelWorld: clean, fast, no verification wall
-    return `https://www.lightnovelworld.com/search?title=${q}`;
+    // FreeWebNovel: primary, no Cloudflare wall, fast
+    return `https://freewebnovel.com/search?searchkey=${q}`;
   }
-  if (type === "Manhwa" || type === "Manhua") {
-    // MangaFire: handles manhwa + manhua well, no Cloudflare annoyance
-    return `https://mangafire.to/filter?keyword=${q}`;
-  }
-  // Manga default → MangaFire covers it cleanly too
+  // Manga / Manhwa / Manhua → MangaFire covers all three cleanly
   return `https://mangafire.to/filter?keyword=${q}`;
 }
 
