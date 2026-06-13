@@ -171,6 +171,50 @@ nav {
   box-shadow: 0 4px 16px rgba(232,184,75,0.12);
 }
 
+.install-wrapper {
+  position: relative;
+}
+
+.install-tooltip {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  max-width: 240px;
+  background: var(--black-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  line-height: 1.6;
+  padding: 12px 14px;
+  text-transform: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 200;
+  pointer-events: none;
+}
+.install-tooltip.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.install-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 20px;
+  width: 12px;
+  height: 12px;
+  background: var(--black-3);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
 /* ── Views ── */
 #view-landing, #view-search, #view-discover, #view-results {
   display: none;

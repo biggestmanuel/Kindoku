@@ -382,26 +382,65 @@ if ('serviceWorker' in navigator) {
 // ── PWA: Install Prompt ──
 let deferredInstallPrompt = null;
 const installBtn = document.getElementById('install-btn');
+const installTooltip = document.getElementById('install-tooltip');
+
+// Check if already running as an installed app (standalone mode)
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+  || window.navigator.standalone === true;
+
+if (isStandalone && installBtn) {
+  installBtn.style.display = 'none';
+} else if (installBtn) {
+  installBtn.style.display = 'flex';
+}
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  if (installBtn) installBtn.style.display = 'flex';
 });
+
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const isAndroid = /Android/.test(ua);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+  return { isIOS, isAndroid, isSafari };
+}
+
+function showInstallTooltip(message) {
+  if (!installTooltip) return;
+  installTooltip.textContent = message;
+  installTooltip.classList.add('visible');
+  setTimeout(() => installTooltip.classList.remove('visible'), 5000);
+}
 
 if (installBtn) {
   installBtn.addEventListener('click', async () => {
-    if (!deferredInstallPrompt) return;
-    deferredInstallPrompt.prompt();
-    const { outcome } = await deferredInstallPrompt.userChoice;
-    if (outcome === 'accepted') {
-      installBtn.style.display = 'none';
+    // Case 1: Chrome/Edge/Android — native prompt is ready
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') installBtn.style.display = 'none';
+      deferredInstallPrompt = null;
+      return;
     }
-    deferredInstallPrompt = null;
+
+    // Case 2: Manual instructions based on platform
+    const { isIOS, isAndroid, isSafari } = detectPlatform();
+
+    if (isIOS) {
+      showInstallTooltip('Tap the Share icon (⬆) below, then "Add to Home Screen"');
+    } else if (isAndroid) {
+      showInstallTooltip('Tap the ⋮ menu (top right), then "Install app" or "Add to Home screen"');
+    } else if (isSafari) {
+      showInstallTooltip('Open File menu → "Add to Dock" (or use Chrome for one-tap install)');
+    } else {
+      showInstallTooltip('Look for an install icon in your address bar, or check your browser menu');
+    }
   });
 }
 
-// Hide install button if app is already running as an installed PWA
+// Hide install button once the app is installed
 window.addEventListener('appinstalled', () => {
   if (installBtn) installBtn.style.display = 'none';
   deferredInstallPrompt = null;
