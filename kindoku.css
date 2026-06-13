@@ -98,6 +98,25 @@ nav {
 }
 
 .nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.nav-logo-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: block;
+  filter: drop-shadow(0 0 12px rgba(232,184,75,0.35));
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+.nav-logo:hover .nav-logo-icon {
+  transform: scale(1.06);
+  filter: drop-shadow(0 0 18px rgba(232,184,75,0.55));
+}
+.nav-logo-text {
   font-family: 'Cinzel Decorative', serif;
   font-size: 1.4rem;
   font-weight: 700;
@@ -106,10 +125,9 @@ nav {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  text-decoration: none;
-  cursor: pointer;
+  line-height: 1.1;
 }
-.nav-logo span {
+.nav-logo-sub {
   font-size: 0.65rem;
   font-family: 'Zen Kaku Gothic New', sans-serif;
   font-weight: 300;
@@ -119,13 +137,38 @@ nav {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin-top: -4px;
+  margin-top: -2px;
 }
 .nav-tagline {
   font-size: 0.7rem;
   letter-spacing: 0.25em;
   color: var(--text-muted);
   text-transform: uppercase;
+}
+
+.install-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: 'Zen Kaku Gothic New', sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.install-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-light);
+  background: rgba(232,184,75,0.06);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(232,184,75,0.12);
 }
 
 /* ── Views ── */
@@ -709,13 +752,14 @@ nav {
   align-items: center;
   gap: 20px;
 }
-.loading-kanji {
-  font-size: 3rem;
-  color: var(--gold);
-  animation: kanjiSpin 2s ease-in-out infinite;
+.loading-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  animation: logoSpin 2s ease-in-out infinite;
   filter: drop-shadow(0 0 24px rgba(232,184,75,0.6));
 }
-@keyframes kanjiSpin {
+@keyframes logoSpin {
   0%,100% { transform: rotateY(0deg); opacity: 1; }
   50% { transform: rotateY(180deg); opacity: 0.3; }
 }
@@ -1004,6 +1048,14 @@ footer {
   position: relative; z-index: 1;
   background: linear-gradient(0deg, rgba(13,11,8,0.9), transparent);
 }
+.footer-logo-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  margin: 0 auto 10px;
+  display: block;
+  filter: drop-shadow(0 0 14px rgba(232,184,75,0.3));
+}
 .footer-logo {
   font-family: 'Cinzel Decorative', serif; font-size: 1rem;
   background: linear-gradient(135deg, var(--gold-light), var(--gold-dim));
@@ -1024,6 +1076,8 @@ footer {
 @media (max-width: 768px) {
   nav { padding: 16px 20px; }
   .nav-tagline { display: none; }
+  .install-btn span { display: none; }
+  .install-btn { padding: 8px; }
   #hero { padding: 100px 20px 60px; }
   .genre-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
   .cards-grid { grid-template-columns: 1fr; }

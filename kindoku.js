@@ -369,3 +369,40 @@ document.head.appendChild(shakeStyle);
 
 // Init — show landing
 switchView('landing');
+
+// ── PWA: Service Worker Registration ──
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
+
+// ── PWA: Install Prompt ──
+let deferredInstallPrompt = null;
+const installBtn = document.getElementById('install-btn');
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (installBtn) installBtn.style.display = 'flex';
+});
+
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === 'accepted') {
+      installBtn.style.display = 'none';
+    }
+    deferredInstallPrompt = null;
+  });
+}
+
+// Hide install button if app is already running as an installed PWA
+window.addEventListener('appinstalled', () => {
+  if (installBtn) installBtn.style.display = 'none';
+  deferredInstallPrompt = null;
+});

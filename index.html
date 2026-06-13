@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Kindoku — Your gateway to Manga, Manhwa, Manhua & Light Novel obsessions" />
   <title>Kindoku · 読む</title>
+
+  <!-- Favicons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta name="theme-color" content="#0d0b08" />
+
   <link rel="stylesheet" href="kindoku.css" />
 </head>
 <body>
@@ -19,10 +28,17 @@
     <!-- ── Navbar ── -->
     <nav>
       <a class="nav-logo" href="#" id="nav-logo-btn">
-        Kindoku
-        <span>金 · 흑 · 読</span>
+        <img src="/icon-192.png" alt="" class="nav-logo-icon" />
+        <span class="nav-logo-text">
+          Kindoku
+          <span class="nav-logo-sub">金 · 흑 · 読</span>
+        </span>
       </a>
       <p class="nav-tagline">Manga · Manhwa · Manhua · Light Novels</p>
+      <button id="install-btn" class="install-btn" style="display:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+        <span>Install</span>
+      </button>
     </nav>
 
     <!-- ════════════════════════
@@ -131,7 +147,7 @@
 
       <div id="loading">
         <div class="loading-inner">
-          <div class="loading-kanji">読</div>
+          <img src="/icon-192.png" alt="" class="loading-logo" />
           <p class="loading-text">Searching the archives</p>
           <div class="loading-dots"><span></span><span></span><span></span></div>
         </div>
@@ -149,13 +165,14 @@
         <div id="load-more-wrapper">
           <button id="load-more-btn">
             <span id="load-more-text">Load More</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7-7 7"/></svg>
           </button>
         </div>
       </div>
     </div>
 
     <footer>
+      <img src="/icon-192.png" alt="Kindoku" class="footer-logo-icon" />
       <p class="footer-logo">Kindoku</p>
       <p class="footer-text">Discover. Read. Obsess.</p>
       <div class="footer-langs">
