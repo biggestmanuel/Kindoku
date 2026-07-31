@@ -1,9 +1,33 @@
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ── Basic rate limiting ─────────────────────────────────────────────────────
+// NOTE: this is in-memory, so it only protects a single warm serverless
+// instance — Vercel can spin up multiple instances under load, and this
+// map resets on cold start. It's a cheap first line of defense against
+// casual abuse/runaway Groq costs, not a hard guarantee. For real
+// production-grade limiting, swap this for Vercel KV or Upstash Redis
+// (shared state across instances).
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+const rateLimitMap = new Map();
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const record = rateLimitMap.get(ip);
+
+  if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(ip, { windowStart: now, count: 1 });
+    return false;
+  }
+
+  record.count += 1;
+  return record.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
 // ── AniList GraphQL query ──────────────────────────────────────────────────
 const ANILIST_QUERY = `
 query ($search: String) {
-  Page(perPage: 1) {
+  Page(perPage: 6) {
     media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
       title { romaji english native }
       description(asHtml: false)
@@ -19,7 +43,41 @@ query ($search: String) {
   }
 }`;
 
-async function fetchAnilistData(title) {
+const STATUS_MAP = {
+  FINISHED: "Completed",
+  RELEASING: "Ongoing",
+  NOT_YET_RELEASED: "Upcoming",
+  CANCELLED: "Cancelled",
+  HIATUS: "On Hiatus",
+};
+
+const FORMAT_MAP = {
+  MANGA: "Manga",
+  NOVEL: "Light Novel",
+  ONE_SHOT: "Manga",
+};
+
+// Derive our internal type (Manga / Manhwa / Manhua / Light Novel) from a
+// single AniList media object.
+function deriveType(media) {
+  let type = FORMAT_MAP[media.format] || "Manga";
+  if (media.format === "MANGA" || !media.format) {
+    const country = media.countryOfOrigin;
+    if (country === "KR") type = "Manhwa";
+    else if (country === "CN" || country === "TW") type = "Manhua";
+    else type = "Manga";
+  }
+  return type;
+}
+
+// `desiredTypes` (e.g. ["Light Novel"]) lets us bias the pick toward what
+// the user actually asked for. AniList's SEARCH_MATCH sort returns the
+// *most popular* adaptation of a title first — for a well-known franchise
+// that's almost always the manga/manhwa version, even if the user wants
+// the light novel. Without this, enrichment silently overwrites the
+// correct format with whatever's most popular, which made the format
+// filter look broken (it was being defeated before it ever ran).
+async function fetchAnilistData(title, desiredTypes = null) {
   try {
     const res = await fetch("https://graphql.anilist.co", {
       method: "POST",
@@ -29,29 +87,20 @@ async function fetchAnilistData(title) {
 
     if (!res.ok) return null;
     const json = await res.json();
-    const media = json?.data?.Page?.media?.[0];
-    if (!media) return null;
+    const candidates = json?.data?.Page?.media || [];
+    if (!candidates.length) return null;
 
-    const statusMap = {
-      FINISHED: "Completed",
-      RELEASING: "Ongoing",
-      NOT_YET_RELEASED: "Upcoming",
-      CANCELLED: "Cancelled",
-      HIATUS: "On Hiatus",
-    };
+    // Pick the first candidate matching a requested format; fall back to
+    // the top (most popular) match if none of them do.
+    let media = candidates[0];
+    let type = deriveType(media);
 
-    const formatMap = {
-      MANGA: "Manga",
-      NOVEL: "Light Novel",
-      ONE_SHOT: "Manga",
-    };
-
-    let type = formatMap[media.format] || "Manga";
-    if (media.format === "MANGA" || !media.format) {
-      const country = media.countryOfOrigin;
-      if (country === "KR") type = "Manhwa";
-      else if (country === "CN" || country === "TW") type = "Manhua";
-      else type = "Manga";
+    if (desiredTypes?.length) {
+      const match = candidates.find(c => desiredTypes.includes(deriveType(c)));
+      if (match) {
+        media = match;
+        type = deriveType(media);
+      }
     }
 
     const rawDesc = media.description || "";
@@ -88,7 +137,7 @@ async function fetchAnilistData(title) {
       type,
       genre: media.genres?.slice(0, 4) || [],
       synopsis: synopsis || null,
-      status: statusMap[media.status] || media.status || "Ongoing",
+      status: STATUS_MAP[media.status] || media.status || "Ongoing",
       rating: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
       coverImage: media.coverImage?.large || media.coverImage?.medium || null,
       anilistUrl: media.siteUrl || null,
@@ -135,6 +184,15 @@ function buildSearchReadUrl(title, type) {
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // ── Rate limit check ──────────────────────────────────────────────────
+  const ip = (req.headers["x-forwarded-for"]?.split(",")[0]?.trim())
+    || req.socket?.remoteAddress
+    || "unknown";
+
+  if (isRateLimited(ip)) {
+    return res.status(429).json({ error: "Too many requests — please slow down and try again in a minute." });
   }
 
   const { mode, genres, tags, formats, customInput, searchInput, exclude } = req.body;
@@ -278,7 +336,7 @@ Only return the JSON array. No other text.`;
   // ── Step 2: Enrich with AniList in parallel ──────────────────────────────
   const enriched = await Promise.all(
     aiRecs.map(async (rec) => {
-      const aniData = await fetchAnilistData(rec.title);
+      const aniData = await fetchAnilistData(rec.title, formats);
 
       // Determine final type (needed for search URL fallback)
       const finalType = aniData?.type || rec.type || "Manga";
@@ -310,5 +368,25 @@ Only return the JSON array. No other text.`;
     })
   );
 
-  return res.status(200).json({ recommendations: enriched, model: usedModel, isExact });
+  // ── Step 3: Enforce requested formats ─────────────────────────────────
+  // The prompt already tells the model to only return the requested
+  // format(s), but that's an instruction, not a guarantee — AniList
+  // enrichment can also override `type` in a way that no longer matches
+  // what was asked for. Filter after the fact so the response actually
+  // respects the user's format selection.
+  //
+  // If nothing matches, don't fall back to showing unfiltered results —
+  // that defeats the point of the filter. Tell the user plainly instead.
+  let finalRecs = enriched;
+  if (formats?.length) {
+    finalRecs = enriched.filter(r => formats.includes(r.type));
+
+    if (finalRecs.length === 0) {
+      return res.status(200).json({
+        error: `No ${formats.join(" or ")} recommendations found for that search. Try a different filter or search term.`,
+      });
+    }
+  }
+
+  return res.status(200).json({ recommendations: finalRecs, model: usedModel, isExact });
 }

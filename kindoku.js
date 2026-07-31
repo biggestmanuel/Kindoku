@@ -59,6 +59,21 @@ function animateParticles(t = 0) {
 window.addEventListener('resize', () => { resizeCanvas(); initParticles(); });
 resizeCanvas(); initParticles(); animateParticles();
 
+// ── HTML Escaping ──────────────────────────────────────────────────────────
+// Recommendation content (title, synopsis, genres, etc.) comes from an LLM,
+// and search/custom input come straight from the user and get echoed back
+// into the prompt. Neither is trusted, so anything going into innerHTML
+// must be escaped to prevent stray markup/script injection.
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ── Data ──
 const GENRES = [
   { label: 'Action', icon: '⚔️' }, { label: 'Adventure', icon: '🗺️' },
@@ -196,7 +211,7 @@ async function submitSearch() {
     cardsGrid.innerHTML = '';
     loadMoreBtn.parentElement.style.display = 'none';
 
-    resultsQueryTags.innerHTML = `<span class="query-tag">${query}</span>`;
+    resultsQueryTags.innerHTML = `<span class="query-tag">${escapeHtml(query)}</span>`;
 
     try {
       const res = await fetch('/api/recommend', {
@@ -243,7 +258,7 @@ async function submitDiscover() {
     cardsGrid.innerHTML = '';
     loadMoreBtn.parentElement.style.display = 'block';
 
-    resultsQueryTags.innerHTML = queryParts.map(q => `<span class="query-tag">${q}</span>`).join('');
+    resultsQueryTags.innerHTML = queryParts.map(q => `<span class="query-tag">${escapeHtml(q)}</span>`).join('');
 
     try {
       const res = await fetch('/api/recommend', {
@@ -280,18 +295,18 @@ function buildCard(r) {
     : r.type?.toLowerCase() === 'manhwa' ? 'manhwa'
     : r.type?.toLowerCase() === 'manhua' ? 'manhua' : '';
   const statusClass = r.status?.toLowerCase() === 'completed' ? 'completed' : '';
-  const genreTags = (r.genre || []).map(g => `<span class="genre-tag">${g}</span>`).join('');
+  const genreTags = (r.genre || []).map(g => `<span class="genre-tag">${escapeHtml(g)}</span>`).join('');
 
   // Cover: real AniList image OR styled placeholder
   const coverHTML = r.coverImage
     ? `<div class="card-cover">
-         <img src="${r.coverImage}" alt="${r.title} cover" loading="lazy" />
+         <img src="${escapeHtml(r.coverImage)}" alt="${escapeHtml(r.title)} cover" loading="lazy" />
          <div class="card-cover-overlay"></div>
        </div>`
     : `<div class="card-cover card-cover--placeholder">
          <div class="card-cover-placeholder-inner">
            <span class="placeholder-kanji">読</span>
-           ${r.coverHint ? `<p class="placeholder-hint">${r.coverHint}</p>` : ''}
+           ${r.coverHint ? `<p class="placeholder-hint">${escapeHtml(r.coverHint)}</p>` : ''}
          </div>
        </div>`;
 
@@ -301,18 +316,18 @@ function buildCard(r) {
     ${coverHTML}
     <div class="card-top">
       <div class="card-badges">
-        <span class="badge badge-type ${typeClass}">${r.type || 'Manga'}</span>
-        <span class="badge badge-status ${statusClass}">${r.status || 'Ongoing'}</span>
+        <span class="badge badge-type ${typeClass}">${escapeHtml(r.type || 'Manga')}</span>
+        <span class="badge badge-status ${statusClass}">${escapeHtml(r.status || 'Ongoing')}</span>
       </div>
-      ${r.rating ? `<div class="card-rating">${r.rating}</div>` : ''}
+      ${r.rating ? `<div class="card-rating">${escapeHtml(r.rating)}</div>` : ''}
     </div>
     <div class="card-body">
-      <h3 class="card-title">${r.title}</h3>
+      <h3 class="card-title">${escapeHtml(r.title)}</h3>
       <div class="card-genres">${genreTags}</div>
-      <p class="card-synopsis">${r.synopsis}</p>
+      <p class="card-synopsis">${escapeHtml(r.synopsis)}</p>
     </div>
     <div class="card-footer">
-      <a class="read-btn" href="${r.readUrl}" target="_blank" rel="noopener noreferrer">読む · Read Now</a>
+      <a class="read-btn" href="${escapeHtml(r.readUrl)}" target="_blank" rel="noopener noreferrer">読む · Read Now</a>
     </div>
   `;
   cardsGrid.appendChild(card);
