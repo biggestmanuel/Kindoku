@@ -252,7 +252,7 @@ Only return the JSON array. No other text.`;
       ? `\nCRITICAL: You MUST only recommend ${formats.join(" and ")}. Do NOT include any other format. Every single result must be ${formats.join(" or ")} only. Returning any other format is a failure.`
       : "";
     const excludeClause = exclude?.length
-      ? `\nDo NOT recommend these titles (already shown): ${exclude.join(", ")}.`
+      ? `\nDo NOT recommend these titles (already shown): ${exclude.slice(-20).join(", ")}. IMPORTANT: You must still strictly follow all genre, tag, and format requirements above regardless of the exclude list.`
       : "";
 
     prompt = `You are Kindoku, an expert recommender of Manga, Manhwa, Manhua, and Light Novels.

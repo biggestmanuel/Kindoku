@@ -461,7 +461,7 @@ loadMoreBtn.addEventListener('click', async () => {
         tags: currentQuery.tags,
         formats: currentQuery.formats,
         customInput: currentQuery.customInput,
-        exclude: allTitles,
+        exclude: allTitles.slice(-20),
       }),
     });
     const data = await res.json();
