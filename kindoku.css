@@ -216,10 +216,9 @@ nav {
 }
 
 /* ── Views ── */
-/* No display:none here — React only renders the active view into the
-   DOM at all (conditional rendering in App.tsx), so there's nothing
-   left to toggle visibility on. The old rule paired with inline
-   styles the vanilla JS set directly, which doesn't exist anymore. */
+#view-landing, #view-search, #view-discover, #view-results {
+  display: none;
+}
 
 .view-enter {
   animation: viewEnter 0.5s ease forwards;

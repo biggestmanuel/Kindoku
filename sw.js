@@ -1,28 +1,16 @@
 // ── Kindoku Service Worker ──────────────────────────────────────────────
-// PORTED AS-IS FROM THE VANILLA VERSION — NEEDS ATTENTION.
-//
-// This precache list hardcodes filenames like '/kindoku.css' and
-// '/kindoku.js'. Vite's production build outputs hashed filenames
-// instead (e.g. '/assets/index-a1b2c3.js'), so this list will silently
-// fail to cache the real build output once you run `npm run build`.
-//
-// Two ways to fix this properly (pick one later, not needed for dev):
-//   1. Swap this hand-rolled worker for `vite-plugin-pwa`, which
-//      generates the precache manifest automatically from your real
-//      build output.
-//   2. Keep this file, but drop the PRECACHE_ASSETS static list and
-//      rely on the runtime cache-as-you-go logic in the fetch handler
-//      below (it already caches successful same-origin GETs on the
-//      fly) — you'd lose the "available offline on first load" benefit
-//      but the rest keeps working.
-//
-// Leaving as-is for now since it doesn't block local dev with Vite.
+// Strategy:
+//   - Static assets (HTML/CSS/JS/icons): cache-first, falls back to network
+//   - /api/* calls (AI recs, AniList enrichment): always network, never cached
+//     (recommendations should always be fresh)
 
 const CACHE_NAME = 'kindoku-cache-v1';
 
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
+  '/kindoku.css',
+  '/kindoku.js',
   '/favicon.ico',
   '/favicon-16x16.png',
   '/favicon-32x32.png',
@@ -32,6 +20,7 @@ const PRECACHE_ASSETS = [
   '/site.webmanifest',
 ];
 
+// ── Install: pre-cache the app shell ──
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS))
@@ -39,6 +28,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+// ── Activate: clean up old cache versions ──
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -52,6 +42,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// ── Fetch: cache-first for app shell, network-only for API ──
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -62,6 +53,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Only handle GET requests for caching
   if (request.method !== 'GET') return;
 
   event.respondWith(
@@ -70,6 +62,7 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(request)
         .then((response) => {
+          // Cache successful same-origin responses for next time
           if (response.ok && url.origin === self.location.origin) {
             const responseClone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
@@ -77,6 +70,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
+          // Offline fallback for navigation requests
           if (request.mode === 'navigate') {
             return caches.match('/index.html');
           }
