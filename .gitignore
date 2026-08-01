@@ -28,3 +28,6 @@ pnpm-debug.log*
 
 # TypeScript build info
 *.tsbuildinfo
+
+.vercel
+.env*
