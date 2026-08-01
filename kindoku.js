@@ -202,17 +202,19 @@ async function submitSearch() {
   currentQuery = { mode: 'search', searchInput: query, genres: [], tags: [], formats: [], customInput: '' };
   allTitles = [];
 
+  // Reset the results view immediately — before switching to it — so the
+  // previous search's cards never get a chance to flash on screen while
+  // the view-enter animation plays.
+  loadingEl.style.display = 'block';
+  resultsContent.style.display = 'none';
+  errorMsg.style.display = 'none';
+  cardsGrid.innerHTML = '';
+  loadMoreBtn.parentElement.style.display = 'none';
+  resultsQueryTags.innerHTML = `<span class="query-tag">${escapeHtml(query)}</span>`;
+
   switchView('results');
 
   setTimeout(async () => {
-    loadingEl.style.display = 'block';
-    resultsContent.style.display = 'none';
-    errorMsg.style.display = 'none';
-    cardsGrid.innerHTML = '';
-    loadMoreBtn.parentElement.style.display = 'none';
-
-    resultsQueryTags.innerHTML = `<span class="query-tag">${escapeHtml(query)}</span>`;
-
     try {
       const res = await fetch('/api/recommend', {
         method: 'POST',
@@ -249,17 +251,20 @@ async function submitDiscover() {
   allTitles = [];
 
   const queryParts = [...genres, ...tags, ...formats, custom].filter(Boolean);
+
+  // Reset the results view immediately — before switching to it — so the
+  // previous search's cards never get a chance to flash on screen while
+  // the view-enter animation plays.
+  loadingEl.style.display = 'block';
+  resultsContent.style.display = 'none';
+  errorMsg.style.display = 'none';
+  cardsGrid.innerHTML = '';
+  loadMoreBtn.parentElement.style.display = 'block';
+  resultsQueryTags.innerHTML = queryParts.map(q => `<span class="query-tag">${escapeHtml(q)}</span>`).join('');
+
   switchView('results');
 
   setTimeout(async () => {
-    loadingEl.style.display = 'block';
-    resultsContent.style.display = 'none';
-    errorMsg.style.display = 'none';
-    cardsGrid.innerHTML = '';
-    loadMoreBtn.parentElement.style.display = 'block';
-
-    resultsQueryTags.innerHTML = queryParts.map(q => `<span class="query-tag">${escapeHtml(q)}</span>`).join('');
-
     try {
       const res = await fetch('/api/recommend', {
         method: 'POST',
