@@ -117,11 +117,15 @@ const cardsGrid      = document.getElementById('cards-grid');
 const resultsTitle   = document.getElementById('results-title');
 const resultsMeta    = document.getElementById('results-meta');
 const errorMsg       = document.getElementById('error-msg');
+const resultsEmpty    = document.getElementById('results-empty');
+const emptyResetBtn   = document.getElementById('empty-reset-btn');
 const resultsQueryTags = document.getElementById('results-query-tags');
 const loadMoreBtn    = document.getElementById('load-more-btn');
 const loadMoreText   = document.getElementById('load-more-text');
 const searchInput    = document.getElementById('search-input');
 const searchSubmitBtn = document.getElementById('search-submit-btn');
+const searchInlineMsg = document.getElementById('search-inline-msg');
+const discoverInlineMsg = document.getElementById('discover-inline-msg');
 const navLogoBtn     = document.getElementById('nav-logo-btn');
 
 // ── Reader Overlay DOM ──
@@ -255,7 +259,53 @@ document.addEventListener('keydown', (e) => {
 // ── View Management ──
 const VIEWS = { landing: viewLanding, search: viewSearch, discover: viewDiscover, results: viewResults };
 
+function clearResultStates() {
+  errorMsg.style.display = 'none';
+  errorMsg.textContent = '';
+  resultsEmpty.hidden = true;
+  cardsGrid.innerHTML = '';
+}
+
+function setInlineMessage(element, message) {
+  if (!element) return;
+  element.textContent = message;
+  element.hidden = !message;
+}
+
+function clearInlineFeedback() {
+  setInlineMessage(searchInlineMsg, '');
+  setInlineMessage(discoverInlineMsg, '');
+}
+
+function showEmptyState(message) {
+  resultsContent.style.display = 'block';
+  cardsGrid.innerHTML = '';
+  resultsEmpty.hidden = false;
+  resultsEmpty.querySelector('.results-empty-text').textContent = message;
+  errorMsg.style.display = 'none';
+  errorMsg.textContent = '';
+}
+
+function showErrorState(message) {
+  resultsContent.style.display = 'block';
+  resultsEmpty.hidden = true;
+  errorMsg.textContent = `⚠ ${message}`;
+  errorMsg.style.display = 'block';
+}
+
+function resetFilters() {
+  selectedGenres.clear();
+  selectedTags.clear();
+  selectedFormats.clear();
+  customInput.value = '';
+  searchInput.value = '';
+  document.querySelectorAll('.genre-btn.active, .tag-btn.active, .format-btn.active').forEach(btn => {
+    btn.classList.remove('active');
+  });
+}
+
 function switchView(to) {
+  clearInlineFeedback();
   Object.values(VIEWS).forEach(v => {
     v.classList.remove('view-active', 'view-enter', 'view-exit');
     v.style.display = 'none';
@@ -284,14 +334,27 @@ document.getElementById('search-back-btn').addEventListener('click', () => switc
 document.getElementById('discover-back-btn').addEventListener('click', () => switchView('landing'));
 backBtn.addEventListener('click', () => switchView(previousView === 'search' ? 'search' : 'discover'));
 navLogoBtn.addEventListener('click', e => { e.preventDefault(); switchView('landing'); });
+emptyResetBtn.addEventListener('click', () => {
+  resetFilters();
+  switchView(previousView === 'search' ? 'search' : 'discover');
+});
 
 // ── Search Submit ──
 searchSubmitBtn.addEventListener('click', submitSearch);
 searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitSearch(); });
+searchInput.addEventListener('input', () => {
+  if (searchInput.value.trim()) setInlineMessage(searchInlineMsg, '');
+});
 
 async function submitSearch() {
   const query = searchInput.value.trim();
-  if (!query) { searchInput.focus(); return; }
+  if (!query) {
+    searchInput.focus();
+    setInlineMessage(searchInlineMsg, 'Type a title or keyword to search first.');
+    return;
+  }
+
+  setInlineMessage(searchInlineMsg, '');
 
   previousView = 'search';
   currentQuery = { mode: 'search', searchInput: query, genres: [], tags: [], formats: [], customInput: '' };
@@ -301,9 +364,7 @@ async function submitSearch() {
   // previous search's cards never get a chance to flash on screen while
   // the view-enter animation plays.
   loadingEl.style.display = 'block';
-  resultsContent.style.display = 'none';
-  errorMsg.style.display = 'none';
-  cardsGrid.innerHTML = '';
+  clearResultStates();
   loadMoreBtn.parentElement.style.display = 'none';
   resultsQueryTags.innerHTML = `<span class="query-tag">${escapeHtml(query)}</span>`;
 
@@ -311,18 +372,23 @@ async function submitSearch() {
 
   setTimeout(async () => {
     try {
-      const res = await fetch('/api/recommend', {
+      const res = await fetch('./api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'search', searchInput: query }),
       });
       const data = await res.json();
       if (!res.ok || !data.recommendations) throw new Error(data.error || 'Something went wrong');
+      if (!data.recommendations.length) {
+        resultsTitle.textContent = `Results for "${escapeHtml(query)}"`;
+        resultsMeta.textContent = '0 titles found';
+        showEmptyState('No titles matched that search. Try a different title or a looser description.');
+        return;
+      }
       allTitles = data.recommendations.map(r => r.title);
       renderCards(data.recommendations, [query], data.isExact);
     } catch (err) {
-      errorMsg.textContent = `⚠ ${err.message}`;
-      errorMsg.style.display = 'block';
+      showErrorState(err.message || 'Something went wrong while fetching recommendations.');
     } finally {
       loadingEl.style.display = 'none';
     }
@@ -332,6 +398,9 @@ async function submitSearch() {
 // ── Discover Submit ──
 discoverBtn.addEventListener('click', submitDiscover);
 customInput.addEventListener('keydown', e => { if (e.key === 'Enter') submitDiscover(); });
+customInput.addEventListener('input', () => {
+  if (customInput.value.trim()) setInlineMessage(discoverInlineMsg, '');
+});
 
 async function submitDiscover() {
   const genres = [...selectedGenres];
@@ -339,8 +408,13 @@ async function submitDiscover() {
   const formats = [...selectedFormats];
   const custom = customInput.value.trim();
 
-  if (!genres.length && !tags.length && !custom) { shakeBtn(discoverBtn); return; }
+  if (!genres.length && !tags.length && !custom) {
+    shakeBtn(discoverBtn);
+    setInlineMessage(discoverInlineMsg, 'Pick at least one genre, tag, or add a few words to describe your mood.');
+    return;
+  }
 
+  setInlineMessage(discoverInlineMsg, '');
   previousView = 'discover';
   currentQuery = { mode: 'discover', genres, tags, formats, customInput: custom, searchInput: '' };
   allTitles = [];
@@ -351,9 +425,7 @@ async function submitDiscover() {
   // previous search's cards never get a chance to flash on screen while
   // the view-enter animation plays.
   loadingEl.style.display = 'block';
-  resultsContent.style.display = 'none';
-  errorMsg.style.display = 'none';
-  cardsGrid.innerHTML = '';
+  clearResultStates();
   loadMoreBtn.parentElement.style.display = 'block';
   resultsQueryTags.innerHTML = queryParts.map(q => `<span class="query-tag">${escapeHtml(q)}</span>`).join('');
 
@@ -361,18 +433,23 @@ async function submitDiscover() {
 
   setTimeout(async () => {
     try {
-      const res = await fetch('/api/recommend', {
+      const res = await fetch('./api/recommend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'discover', genres, tags, formats, customInput: custom, exclude: [] }),
       });
       const data = await res.json();
       if (!res.ok || !data.recommendations) throw new Error(data.error || 'Something went wrong');
+      if (!data.recommendations.length) {
+        resultsTitle.textContent = `Results for "${queryParts.slice(0, 3).join(' · ') || 'your mood'}"`;
+        resultsMeta.textContent = '0 titles found';
+        showEmptyState('No recommendations matched that mix. Try broadening one or two filters.');
+        return;
+      }
       allTitles = data.recommendations.map(r => r.title);
       renderCards(data.recommendations, queryParts, false);
     } catch (err) {
-      errorMsg.textContent = `⚠ ${err.message}`;
-      errorMsg.style.display = 'block';
+      showErrorState(err.message || 'Something went wrong while fetching recommendations.');
     } finally {
       loadingEl.style.display = 'none';
     }
@@ -382,11 +459,14 @@ async function submitDiscover() {
 // ── Render Cards ──
 function renderCards(recs, queryParts, isExact = false) {
   cardsGrid.innerHTML = '';
+  resultsEmpty.hidden = true;
   const label = queryParts.slice(0, 3).join(' · ') + (queryParts.length > 3 ? ' · ...' : '');
   resultsTitle.textContent = isExact ? queryParts[0] : `Results for "${label}"`;
   resultsMeta.textContent = `${recs.length} title${recs.length !== 1 ? 's' : ''} found`;
   recs.forEach(r => buildCard(r));
   resultsContent.style.display = 'block';
+  errorMsg.style.display = 'none';
+  errorMsg.textContent = '';
 }
 
 // ── Build Card ──
@@ -452,7 +532,7 @@ loadMoreBtn.addEventListener('click', async () => {
   loadMoreText.textContent = 'Loading...';
 
   try {
-    const res = await fetch('/api/recommend', {
+    const res = await fetch('./api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -499,7 +579,7 @@ switchView('landing');
 // ── PWA: Service Worker Registration ──
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
       console.warn('Service worker registration failed:', err);
     });
   });

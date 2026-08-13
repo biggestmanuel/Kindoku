@@ -7,17 +7,17 @@
 const CACHE_NAME = 'kindoku-cache-v1';
 
 const PRECACHE_ASSETS = [
-  '/',
-  '/index.html',
-  '/kindoku.css',
-  '/kindoku.js',
-  '/favicon.ico',
-  '/favicon-16x16.png',
-  '/favicon-32x32.png',
-  '/apple-touch-icon.png',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/site.webmanifest',
+  './',
+  './index.html',
+  './kindoku.css',
+  './kindoku.js',
+  './favicon.ico',
+  './favicon-16x16.png',
+  './favicon-32x32.png',
+  './apple-touch-icon.png',
+  './icon-192.png',
+  './icon-512.png',
+  './site.webmanifest',
 ];
 
 // ── Install: pre-cache the app shell ──
@@ -72,7 +72,7 @@ self.addEventListener('fetch', (event) => {
         .catch(() => {
           // Offline fallback for navigation requests
           if (request.mode === 'navigate') {
-            return caches.match('/index.html');
+            return caches.match('./index.html');
           }
         });
     })

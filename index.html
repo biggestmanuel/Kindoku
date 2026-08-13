@@ -7,11 +7,11 @@
   <title>Kindoku · 読む</title>
 
   <!-- Favicons -->
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-  <link rel="shortcut icon" href="/favicon.ico" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-  <link rel="manifest" href="/site.webmanifest" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
+  <link rel="shortcut icon" href="./favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+  <link rel="manifest" href="./site.webmanifest" />
   <meta name="theme-color" content="#0d0b08" />
 
   <link rel="stylesheet" href="kindoku.css" />
@@ -28,7 +28,7 @@
     <!-- ── Navbar ── -->
     <nav>
       <a class="nav-logo" href="#" id="nav-logo-btn">
-        <img src="/icon-192.png" alt="" class="nav-logo-icon" />
+        <img src="./icon-192.png" alt="" class="nav-logo-icon" />
         <span class="nav-logo-text">
           Kindoku
           <span class="nav-logo-sub">金· 흑 · 読</span>
@@ -94,6 +94,7 @@
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
           </div>
+          <div id="search-inline-msg" class="inline-msg" aria-live="polite" hidden></div>
         </div>
       </div>
     </div>
@@ -129,6 +130,8 @@
           <input type="text" id="custom-input" placeholder="Describe anything extra... e.g. 'dark revenge story with a cold MC'" autocomplete="off" />
         </div>
 
+        <div id="discover-inline-msg" class="inline-msg" aria-live="polite" hidden></div>
+
         <button id="discover-btn">
           <span>Discover</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -150,13 +153,18 @@
 
       <div id="loading">
         <div class="loading-inner">
-          <img src="/icon-192.png" alt="" class="loading-logo" />
+          <img src="./icon-192.png" alt="" class="loading-logo" />
           <p class="loading-text">Searching the archives</p>
           <div class="loading-dots"><span></span><span></span><span></span></div>
         </div>
       </div>
 
       <p id="error-msg"></p>
+      <div id="results-empty" class="results-empty" hidden>
+        <p class="results-empty-title">No matches yet</p>
+        <p class="results-empty-text">Try a broader search or mix in a different genre or tag.</p>
+        <button id="empty-reset-btn" class="results-empty-btn" type="button">Reset</button>
+      </div>
 
       <div id="results-content" style="display:none;">
         <div class="results-header">
@@ -175,7 +183,7 @@
     </div>
 
     <footer>
-      <img src="/icon-192.png" alt="Kindoku" class="footer-logo-icon" />
+      <img src="./icon-192.png" alt="Kindoku" class="footer-logo-icon" />
       <p class="footer-logo">Kindoku</p>
       <p class="footer-text">Discover. Read. Obsess.</p>
       <div class="footer-langs">
