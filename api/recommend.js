@@ -1,15 +1,36 @@
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ── Basic rate limiting ─────────────────────────────────────────────────────
-// NOTE: this is in-memory, so it only protects a single warm serverless
-// instance — Vercel can spin up multiple instances under load, and this
-// map resets on cold start. It's a cheap first line of defense against
-// casual abuse/runaway Groq costs, not a hard guarantee. For real
-// production-grade limiting, swap this for Vercel KV or Upstash Redis
-// (shared state across instances).
+const REQUEST_TIMEOUT_MS = 25_000;
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const RATE_LIMIT_MAX_REQUESTS = 20;
+const RATE_LIMIT_MAX_REQUESTS = 30;
 const rateLimitMap = new Map();
+const aiRecommendationCache = new Map();
+const anilistCache = new Map();
+
+function getClientIp(req) {
+  return (req.headers["x-forwarded-for"]?.split(",")[0]?.trim())
+    || req.headers["x-real-ip"]
+    || req.socket?.remoteAddress
+    || "unknown";
+}
+
+function getCachedValue(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedValue(cache, key, value) {
+  cache.set(key, {
+    value,
+    timestamp: Date.now(),
+  });
+}
 
 function isRateLimited(ip) {
   const now = Date.now();
@@ -22,6 +43,17 @@ function isRateLimited(ip) {
 
   record.count += 1;
   return record.count > RATE_LIMIT_MAX_REQUESTS;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── AniList GraphQL query ──────────────────────────────────────────────────
@@ -78,8 +110,12 @@ function deriveType(media) {
 // correct format with whatever's most popular, which made the format
 // filter look broken (it was being defeated before it ever ran).
 async function fetchAnilistData(title, desiredTypes = null) {
+  const cacheKey = JSON.stringify({ title, desiredTypes });
+  const cached = getCachedValue(anilistCache, cacheKey);
+  if (cached) return cached;
+
   try {
-    const res = await fetch("https://graphql.anilist.co", {
+    const res = await fetchWithTimeout("https://graphql.anilist.co", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query: ANILIST_QUERY, variables: { search: title } }),
@@ -132,7 +168,7 @@ async function fetchAnilistData(title, desiredTypes = null) {
       }
     }
 
-    return {
+    const result = {
       title: media.title.english || media.title.romaji || title,
       type,
       genre: media.genres?.slice(0, 4) || [],
@@ -141,8 +177,11 @@ async function fetchAnilistData(title, desiredTypes = null) {
       rating: media.averageScore ? (media.averageScore / 10).toFixed(1) : null,
       coverImage: media.coverImage?.large || media.coverImage?.medium || null,
       anilistUrl: media.siteUrl || null,
-      readUrl,   // real link or null — will fall back below
+      readUrl,
     };
+
+    setCachedValue(anilistCache, cacheKey, result);
+    return result;
   } catch {
     return null;
   }
@@ -277,55 +316,71 @@ Only return the JSON array. No other text.`;
 
   // ── Step 1: Get AI recommendations ──────────────────────────────────────
   const GROQ_MODELS = [
-    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
     "gemma2-9b-it",
     "mixtral-8x7b-32768",
-    "llama-3.3-70b-versatile",
   ];
 
-  let aiRecs = null;
-  let usedModel = null;
+  const cacheKey = JSON.stringify({ mode, prompt, genres, tags, formats, exclude, customInput, searchInput });
+  const cachedAi = getCachedValue(aiRecommendationCache, cacheKey);
+  let aiRecs = cachedAi || null;
+  let usedModel = cachedAi ? "cached" : null;
   let lastError = null;
 
-  for (let i = 0; i < GROQ_MODELS.length; i++) {
-    const model = GROQ_MODELS[i];
-    if (i > 0) await sleep(1500);
+  if (!aiRecs) {
+    for (let i = 0; i < GROQ_MODELS.length; i++) {
+      const model = GROQ_MODELS[i];
+      if (i > 0) await sleep(1500);
 
-    try {
-      console.log(`Trying model: ${model}`);
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.API_KEY_FOR_KINDOKU}`,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.8,
-        }),
-      });
+      try {
+        console.log(`Trying model: ${model}`);
+        const response = await fetchWithTimeout(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.8,
+              max_tokens: 2500,
+            }),
+          }
+        );
 
-      if (response.status === 429) {
-        console.warn(`Model ${model} rate limited...`);
-        await sleep(2000);
-        lastError = "Rate limited";
+        if (response.status === 429) {
+          console.warn(`Model ${model} rate limited...`);
+          await sleep(2000);
+          lastError = "Rate limited";
+          continue;
+        }
+
+        if (!response.ok) {
+          const body = await response.text();
+          console.warn(`Model ${model} failed: ${response.status} ${body}`);
+          lastError = `${response.status}`;
+          continue;
+        }
+
+        const data = await response.json();
+        const raw = data.choices?.[0]?.message?.content;
+        if (!raw) { lastError = "No content"; continue; }
+
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        aiRecs = JSON.parse(cleaned);
+        usedModel = model;
+        setCachedValue(aiRecommendationCache, cacheKey, aiRecs);
+        console.log(`Success with model: ${model}`);
+        break;
+      } catch (err) {
+        console.warn(`Model ${model} failed: ${err.message}`);
+        lastError = err.message;
         continue;
       }
-
-      const data = await response.json();
-      const raw = data.choices?.[0]?.message?.content;
-      if (!raw) { lastError = "No content"; continue; }
-
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      aiRecs = JSON.parse(cleaned);
-      usedModel = model;
-      console.log(`Success with model: ${model}`);
-      break;
-    } catch (err) {
-      console.warn(`Model ${model} failed: ${err.message}`);
-      lastError = err.message;
-      continue;
     }
   }
 
