@@ -4,7 +4,7 @@
 //   - /api/* calls (AI recs, AniList enrichment): always network, never cached
 //     (recommendations should always be fresh)
 
-const CACHE_NAME = 'kindoku-cache-v1';
+const CACHE_NAME = 'kindoku-cache-v2';
 
 const PRECACHE_ASSETS = [
   './',
@@ -14,6 +14,7 @@ const PRECACHE_ASSETS = [
   './favicon.ico',
   './favicon-16x16.png',
   './favicon-32x32.png',
+  './favicon-48x48.png',
   './apple-touch-icon.png',
   './icon-192.png',
   './icon-512.png',

@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="gold">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Kindoku — Your gateway to Manga, Manhwa, Manhua & Light Novel obsessions" />
-  <title>Kindoku · 読む</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Kindoku — Discover Manga, Manhwa, Manhua & Light Novels across every genre, mood, and trope. Powered by AI and AniList." />
+  <meta name="keywords" content="manga, manhwa, manhua, light novels, recommendation engine, solo leveling, webtoons, anilist" />
+  <title>Kindoku · 金 · 흑 · 読</title>
 
   <!-- Favicons -->
   <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
@@ -12,214 +13,845 @@
   <link rel="shortcut icon" href="./favicon.ico" />
   <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
   <link rel="manifest" href="./site.webmanifest" />
-  <meta name="theme-color" content="#0d0b08" />
+  <meta name="theme-color" content="#090806" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Noto+Sans+JP:wght@300;400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&family=Yuji+Syuku&family=Zen+Kaku+Gothic+New:wght@300;400;500;700&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="kindoku.css" />
 </head>
 <body>
 
+  <!-- Ambient canvas and atmospheric mesh glow -->
   <canvas id="particle-canvas"></canvas>
-  <div class="ink-blob ink-blob-1"></div>
-  <div class="ink-blob ink-blob-2"></div>
-  <div class="ink-blob ink-blob-3"></div>
+  <div class="glow-orb glow-orb-1"></div>
+  <div class="glow-orb glow-orb-2"></div>
+  <div class="glow-orb glow-orb-3"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <div id="app">
 
-    <!-- ── Navbar ── -->
-    <nav>
-      <a class="nav-logo" href="#" id="nav-logo-btn">
-        <img src="./icon-192.png" alt="" class="nav-logo-icon" />
-        <span class="nav-logo-text">
-          Kindoku
-          <span class="nav-logo-sub">金· 흑 · 読</span>
-        </span>
-      </a>
-      <p class="nav-tagline">Manga · Manhwa · Manhua · Light Novels</p>
-      <div class="install-wrapper">
-        <button id="install-btn" class="install-btn" style="display:none;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-          <span>Install</span>
-        </button>
-        <div id="install-tooltip" class="install-tooltip"></div>
-      </div>
-    </nav>
+    <!-- ════════════════════════
+         NAVBAR
+    ════════════════════════ -->
+    <header class="app-header">
+      <nav class="nav-container">
+        <!-- Logo -->
+        <a class="nav-logo" href="#" id="nav-logo-btn" aria-label="Kindoku Home">
+          <div class="nav-logo-icon-wrap">
+            <img src="./icon-192.png" alt="Kindoku Icon" class="nav-logo-icon" />
+            <div class="nav-logo-pulse"></div>
+          </div>
+          <div class="nav-logo-text-group">
+            <span class="nav-logo-text">Kindoku</span>
+            <span class="nav-logo-sub">金 · 흑 · 読</span>
+          </div>
+        </a>
+
+        <!-- Desktop Quick Nav Links -->
+        <div class="nav-center-links">
+          <button class="nav-link-btn active" data-nav="landing">Home</button>
+          <button class="nav-link-btn" data-nav="discover">Discover</button>
+          <button class="nav-link-btn" data-nav="search">Search</button>
+          <button class="nav-link-btn" data-nav="library" id="nav-library-btn">
+            <span>Library</span>
+            <span class="library-badge" id="nav-library-count">0</span>
+          </button>
+        </div>
+
+        <!-- Right Controls -->
+        <div class="nav-right-controls">
+          <!-- Command Palette Trigger -->
+          <button class="nav-cmd-trigger" id="cmd-trigger-btn" title="Quick Search (Ctrl + K)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <span class="nav-cmd-label">Search</span>
+            <kbd class="nav-cmd-shortcut">⌘K</kbd>
+          </button>
+
+          <!-- Theme Selector Dropdown -->
+          <div class="theme-dropdown-wrap">
+            <button class="theme-btn" id="theme-menu-btn" aria-label="Change Theme" title="Theme Accents">
+              <span class="theme-color-dot"></span>
+              <span class="theme-current-name">Gold</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="theme-menu" id="theme-menu">
+              <button class="theme-opt" data-theme="gold"><span class="opt-dot" style="background:#e8b84b;"></span>Imperial Gold</button>
+              <button class="theme-opt" data-theme="crimson"><span class="opt-dot" style="background:#e74c3c;"></span>Crimson Ronin</button>
+              <button class="theme-opt" data-theme="jade"><span class="opt-dot" style="background:#1abc9c;"></span>Jade Sovereign</button>
+              <button class="theme-opt" data-theme="amethyst"><span class="opt-dot" style="background:#bb86fc;"></span>Amethyst Void</button>
+              <button class="theme-opt" data-theme="azure"><span class="opt-dot" style="background:#64d2ff;"></span>Cyber Azure</button>
+            </div>
+          </div>
+
+          <!-- Install PWA Button -->
+          <div class="install-wrapper">
+            <button id="install-btn" class="install-btn" style="display:none;" aria-label="Install App">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              <span>Install</span>
+            </button>
+            <div id="install-tooltip" class="install-tooltip"></div>
+          </div>
+        </div>
+      </nav>
+    </header>
 
     <!-- ════════════════════════
-         VIEW: LANDING
+         VIEW: LANDING (HERO)
     ════════════════════════ -->
-    <div id="view-landing">
-      <section id="hero">
-        <p class="hero-kana">金 · 흑 · 読 · きんどく</p>
-        <h1 class="hero-title">
-          <span class="gold-text">Kindoku</span>
-          <span class="red-text">Your Next Obsession Starts Here</span>
-        </h1>
-        <p class="hero-subtitle">
-          Discover Manga, Manhwa, Manhua &amp; Light Novels across every genre, every mood.
-        </p>
-        <div class="hero-languages">
-          <span class="hero-lang-tag"><span>金</span> Gold · Japanese</span>
-          <span class="hero-lang-tag"><span>흑</span> Black · Korean</span>
-          <span class="hero-lang-tag"><span>読</span> Read · Chinese</span>
+    <main id="view-landing" class="view-panel">
+      <section id="hero" class="hero-section">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          <span class="hero-badge-text">金 · 흑 · 読 · きんどく</span>
         </div>
+
+        <h1 class="hero-title">
+          <span class="hero-title-main">Kindoku</span>
+          <span class="hero-title-sub">Where Your Next Obsession Begins</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Explore AI-curated Manga, Manhwa, Manhua &amp; Light Novels tailored to your exact mood, tropes, and appetite.
+        </p>
+
+        <!-- Cultural Format Chips -->
+        <div class="hero-formats">
+          <div class="hero-format-pill pill-manga">
+            <span class="pill-kanji">金</span>
+            <span class="pill-text"><strong>Manga</strong> · 🇯🇵 Japan</span>
+          </div>
+          <div class="hero-format-pill pill-manhwa">
+            <span class="pill-kanji">흑</span>
+            <span class="pill-text"><strong>Manhwa</strong> · 🇰🇷 Korea</span>
+          </div>
+          <div class="hero-format-pill pill-manhua">
+            <span class="pill-kanji">読</span>
+            <span class="pill-text"><strong>Manhua</strong> · 🇨🇳 China</span>
+          </div>
+          <div class="hero-format-pill pill-novel">
+            <span class="pill-kanji">書</span>
+            <span class="pill-text"><strong>Light Novel</strong> · 📚 Web Novels</span>
+          </div>
+        </div>
+
+        <!-- Quick Vibe Bar -->
+        <div class="hero-vibe-bar">
+          <span class="vibe-bar-label">Instant Vibes:</span>
+          <div class="vibe-chips-wrap">
+            <button class="vibe-chip" data-vibe="OP MC Solo Leveling power fantasy system dungeon">⚡ OP Protagonist</button>
+            <button class="vibe-chip" data-vibe="Reincarnated villainess romance otome fantasy nobility">👑 Otome Villainess</button>
+            <button class="vibe-chip" data-vibe="Murim martial arts cultivation heavenly demon sect">🥋 Peak Murim</button>
+            <button class="vibe-chip" data-vibe="Dark grimdark psychological survival revenge berserk">💀 Dark Psychological</button>
+            <button class="vibe-chip" data-vibe="Tower climbing regression necromancer hunter system">🏰 Tower Climbing</button>
+            <button class="vibe-chip" data-vibe="Wholesome cozy slice of life fantasy food comedy">🌸 Cozy &amp; Wholesome</button>
+          </div>
+        </div>
+
+        <!-- Hero Actions -->
         <div class="hero-actions">
-          <button class="hero-btn hero-btn-search" id="btn-go-search">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            Search
-          </button>
-          <button class="hero-btn hero-btn-discover" id="btn-go-discover">
+          <button class="btn btn-primary" id="btn-hero-discover">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            Discover
+            <span>Deep Discover</span>
           </button>
+          <button class="btn btn-secondary" id="btn-hero-search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <span>Search Titles</span>
+          </button>
+          <button class="btn btn-ghost" id="btn-hero-random" title="Surprise me with a random curation!">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m16 3 5 5-5 5"/><path d="M4 20h7a4 4 0 0 0 4-4V4"/><path d="m21 16-5 5-5-5"/><path d="M15 15v5a4 4 0 0 1-4 4H4"/></svg>
+            <span>Fate Roll 🎲</span>
+          </button>
+        </div>
+
+        <!-- Showcase Vault Marquee -->
+        <div class="showcase-vault">
+          <div class="showcase-vault-header">
+            <span class="vault-label">CURATED ARCHIVES</span>
+            <span class="vault-line"></span>
+          </div>
+          <div class="showcase-marquee-track">
+            <div class="showcase-card showcase-solo" data-search="Solo Leveling">
+              <div class="showcase-cover" style="background-image: linear-gradient(180deg, transparent 40%, rgba(9,8,6,0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx105398-b6138kgBspd1.jpg');">
+                <span class="showcase-tag">Manhwa</span>
+                <div class="showcase-info">
+                  <h4 class="showcase-title">Solo Leveling</h4>
+                  <p class="showcase-genre">Action · Fantasy · Hunter</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="showcase-card showcase-berserk" data-search="Berserk">
+              <div class="showcase-cover" style="background-image: linear-gradient(180deg, transparent 40%, rgba(9,8,6,0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx30002-7781i50gzp5X.jpg');">
+                <span class="showcase-tag">Manga</span>
+                <div class="showcase-info">
+                  <h4 class="showcase-title">Berserk</h4>
+                  <p class="showcase-genre">Dark Fantasy · Tragedy</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="showcase-card showcase-orv" data-search="Omniscient Reader's Viewpoint">
+              <div class="showcase-cover" style="background-image: linear-gradient(180deg, transparent 40%, rgba(9,8,6,0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx119257-2V3a1lC1xYy2.jpg');">
+                <span class="showcase-tag">Manhwa</span>
+                <div class="showcase-info">
+                  <h4 class="showcase-title">Omniscient Reader</h4>
+                  <p class="showcase-genre">Action · Psychological</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="showcase-card showcase-lotm" data-search="Lord of the Mysteries">
+              <div class="showcase-cover" style="background-image: linear-gradient(180deg, transparent 40%, rgba(9,8,6,0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx114960-R2g5sQ94n3p1.jpg');">
+                <span class="showcase-tag">Light Novel</span>
+                <div class="showcase-info">
+                  <h4 class="showcase-title">Lord of the Mysteries</h4>
+                  <p class="showcase-genre">Steampunk · Eldritch</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="showcase-card showcase-frieren" data-search="Frieren Beyond Journey's End">
+              <div class="showcase-cover" style="background-image: linear-gradient(180deg, transparent 40%, rgba(9,8,6,0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx118586-g47d6YjQ6z4O.jpg');">
+                <span class="showcase-tag">Manga</span>
+                <div class="showcase-info">
+                  <h4 class="showcase-title">Frieren</h4>
+                  <p class="showcase-genre">Fantasy · Adventure · Magic</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="showcase-card showcase-nano" data-search="Nano Machine">
+              <div class="showcase-cover" style="background-image: linear-gradient(180deg, transparent 40%, rgba(9,8,6,0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx119853-xK8p4O8qR4qO.jpg');">
+                <span class="showcase-tag">Manhwa</span>
+                <div class="showcase-info">
+                  <h4 class="showcase-title">Nano Machine</h4>
+                  <p class="showcase-genre">Murim · Sci-Fi · Action</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Value Proposition Strip -->
+        <div class="feature-strip">
+          <div class="feature-item">
+            <span class="feature-icon">🧠</span>
+            <div class="feature-texts">
+              <h4>AI Taste Engine</h4>
+              <p>Understands tropes, pacing, and sub-genres</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✨</span>
+            <div class="feature-texts">
+              <h4>AniList Enriched</h4>
+              <p>Live ratings, covers, genres, and metadata</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">📖</span>
+            <div class="feature-texts">
+              <h4>Direct Reading</h4>
+              <p>Instant links to read legally &amp; freely</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🔖</span>
+            <div class="feature-texts">
+              <h4>Personal Library</h4>
+              <p>Save favorites offline with export support</p>
+            </div>
+          </div>
         </div>
       </section>
-    </div>
+    </main>
 
     <!-- ════════════════════════
          VIEW: SEARCH
     ════════════════════════ -->
-    <div id="view-search">
-      <div class="search-fullscreen">
-        <button class="back-top-btn" id="search-back-btn">
+    <section id="view-search" class="view-panel">
+      <div class="search-view-container">
+        <button class="back-link-btn" id="search-back-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          Back
+          <span>Back</span>
         </button>
-        <div class="search-center">
-          <p class="search-eyebrow">金 · 흑 · 認</p>
-          <h2 class="search-heading">What are you looking for?</h2>
-          <p class="search-hint">Enter the name of a Manga, Manhwa, Manhua or Light Novel<br/>or try <em>"something like Solo Leveling"</em></p>
-          <div class="search-bar-wrapper">
-            <input type="text" id="search-input" placeholder="e.g. Solo Leveling or something like Berserk..." autocomplete="off" />
-            <button id="search-submit-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+
+        <div class="search-center-box">
+          <div class="section-badge">金 · 흑 · 認 · ARCHIVE SEARCH</div>
+          <h2 class="search-title">What are you looking for?</h2>
+          <p class="search-desc">
+            Search for an exact title or describe a vibe like <em>"something like Solo Leveling with a necromancer"</em>
+          </p>
+
+          <!-- Search Mode Switcher -->
+          <div class="search-mode-tabs">
+            <button class="mode-tab active" data-mode="all">
+              <span>✦ Smart Match</span>
+            </button>
+            <button class="mode-tab" data-mode="exact">
+              <span>🎯 Exact Title</span>
+            </button>
+            <button class="mode-tab" data-mode="similar">
+              <span>🔮 "Similar To..."</span>
+            </button>
+          </div>
+
+          <!-- Search Bar Wrapper -->
+          <div class="omnibar-wrapper">
+            <div class="omnibar-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </div>
+            <input type="text" id="search-input" placeholder="e.g. Solo Leveling, Berserk, or 'dark revenge manhwa'..." autocomplete="off" />
+            <button class="omnibar-clear-btn" id="search-clear-btn" style="display:none;" title="Clear">✕</button>
+            <button id="search-submit-btn" class="omnibar-submit-btn" aria-label="Search">
+              <span>Search</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
           </div>
           <div id="search-inline-msg" class="inline-msg" aria-live="polite" hidden></div>
+
+          <!-- Recent Searches -->
+          <div class="recent-searches-box" id="recent-searches-box" style="display:none;">
+            <div class="recent-searches-header">
+              <span class="recent-title">Recent Searches</span>
+              <button class="recent-clear-btn" id="recent-clear-btn">Clear</button>
+            </div>
+            <div class="recent-chips" id="recent-chips"></div>
+          </div>
+
+          <!-- Trending & Curated Suggestions -->
+          <div class="search-suggestions">
+            <p class="suggestions-label">Popular Searches &amp; Prompts:</p>
+            <div class="suggestion-chips">
+              <button class="suggestion-chip">Solo Leveling</button>
+              <button class="suggestion-chip">Omniscient Reader's Viewpoint</button>
+              <button class="suggestion-chip">The Beginning After The End</button>
+              <button class="suggestion-chip">Berserk</button>
+              <button class="suggestion-chip">Kingdom</button>
+              <button class="suggestion-chip">Lord of the Mysteries</button>
+              <button class="suggestion-chip">Nano Machine</button>
+              <button class="suggestion-chip">Grandmaster of Demonic Cultivation</button>
+              <button class="suggestion-chip">Chainsaw Man</button>
+              <button class="suggestion-chip">Vagabond</button>
+              <button class="suggestion-chip">Tower of God</button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- ════════════════════════
          VIEW: DISCOVER
     ════════════════════════ -->
-    <div id="view-discover">
-      <section id="discover-section">
-        <button class="back-top-btn" id="discover-back-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          Back
-        </button>
-
-        <p class="section-label">Pick Your Genres</p>
-        <h2 class="section-title">What are you in the mood for?</h2>
-        <div class="genre-grid" id="genre-grid"></div>
-
-        <p class="section-label" style="margin-top:40px;">Add Tags</p>
-        <h2 class="section-title" style="font-size:clamp(1rem,2.5vw,1.4rem);">Narrow it down</h2>
-        <div class="tags-grid" id="tags-grid"></div>
-
-        <p class="section-label" style="margin-top:40px;">Format</p>
-        <h2 class="section-title" style="font-size:clamp(1rem,2.5vw,1.4rem);">What type?</h2>
-        <div class="format-grid" id="format-grid">
-          <button class="format-btn" data-format="Manga">📖 Manga</button>
-          <button class="format-btn" data-format="Manhwa">🎨 Manhwa</button>
-          <button class="format-btn" data-format="Manhua">🐉 Manhua</button>
-          <button class="format-btn" data-format="Light Novel">📚 Light Novel</button>
+    <section id="view-discover" class="view-panel">
+      <div class="discover-container">
+        <div class="discover-topbar">
+          <button class="back-link-btn" id="discover-back-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            <span>Back</span>
+          </button>
+          <div class="discover-actions-top">
+            <button class="pill-action-btn" id="discover-preset-random-btn">
+              <span>Randomize Matrix 🎲</span>
+            </button>
+            <button class="pill-action-btn" id="discover-reset-all-btn">
+              <span>Reset All</span>
+            </button>
+          </div>
         </div>
 
-        <div class="custom-input-wrapper">
-          <input type="text" id="custom-input" placeholder="Describe anything extra... e.g. 'dark revenge story with a cold MC'" autocomplete="off" />
+        <div class="discover-header">
+          <div class="section-badge">金 · 흑 · 読 · DISCOVERY MATRIX</div>
+          <h2 class="discover-title">Craft Your Reading Experience</h2>
+          <p class="discover-subtitle">Pick curated presets, combine genres and tropes, or add your own custom twist.</p>
+        </div>
+
+        <!-- 1-Click Curated Presets -->
+        <div class="discover-card-block">
+          <div class="block-header">
+            <h3 class="block-title">⚡ 1-Click Curated Presets</h3>
+            <span class="block-hint">Instantly load popular archetype builds</span>
+          </div>
+          <div class="presets-grid" id="presets-grid">
+            <button class="preset-card" data-preset="tower">
+              <span class="preset-icon">🏰</span>
+              <div class="preset-info">
+                <h4>Tower &amp; Dungeon Leveling</h4>
+                <p>System, Hunter, Necromancer, OP MC</p>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="murim">
+              <span class="preset-icon">🥋</span>
+              <div class="preset-info">
+                <h4>Heavenly Demon Murim</h4>
+                <p>Martial Arts, Cultivation, Revenge, Regression</p>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="villainess">
+              <span class="preset-icon">👑</span>
+              <div class="preset-info">
+                <h4>Otome Villainess Rebirth</h4>
+                <p>Villainess, Romance, Fantasy, Nobility</p>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="grimdark">
+              <span class="preset-icon">💀</span>
+              <div class="preset-info">
+                <h4>Grimdark Revenge</h4>
+                <p>Horror, Psychological, Tragedy, Survival</p>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="academy">
+              <span class="preset-icon">🧙</span>
+              <div class="preset-info">
+                <h4>Magic Academy Prodigy</h4>
+                <p>Magic, Academy, Fantasy, School Life</p>
+              </div>
+            </button>
+            <button class="preset-card" data-preset="cozy">
+              <span class="preset-icon">🌸</span>
+              <div class="preset-info">
+                <h4>Heartwarming Slice of Life</h4>
+                <p>Slice of Life, Comedy, Romance, Chill</p>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Format Selection -->
+        <div class="discover-card-block">
+          <div class="block-header">
+            <h3 class="block-title">Format / Medium</h3>
+            <span class="block-hint" id="format-selected-count">All formats selected</span>
+          </div>
+          <div class="format-grid" id="format-grid">
+            <button class="format-card" data-format="Manga">
+              <div class="format-card-top">
+                <span class="format-icon">📖</span>
+                <span class="format-flag">🇯🇵 Japan</span>
+              </div>
+              <h4 class="format-name">Manga</h4>
+              <p class="format-desc">Japanese Comics &amp; Serialization</p>
+            </button>
+
+            <button class="format-card" data-format="Manhwa">
+              <div class="format-card-top">
+                <span class="format-icon">🎨</span>
+                <span class="format-flag">🇰🇷 Korea</span>
+              </div>
+              <h4 class="format-name">Manhwa</h4>
+              <p class="format-desc">Korean Full-Color Webtoons</p>
+            </button>
+
+            <button class="format-card" data-format="Manhua">
+              <div class="format-card-top">
+                <span class="format-icon">🐉</span>
+                <span class="format-flag">🇨🇳 China</span>
+              </div>
+              <h4 class="format-name">Manhua</h4>
+              <p class="format-desc">Chinese Cultivation &amp; Comics</p>
+            </button>
+
+            <button class="format-card" data-format="Light Novel">
+              <div class="format-card-top">
+                <span class="format-icon">📚</span>
+                <span class="format-flag">🌐 Web / Books</span>
+              </div>
+              <h4 class="format-name">Light Novel</h4>
+              <p class="format-desc">Original Web &amp; Light Novels</p>
+            </button>
+          </div>
+        </div>
+
+        <!-- Primary Genres -->
+        <div class="discover-card-block">
+          <div class="block-header">
+            <h3 class="block-title">Primary Genres</h3>
+            <span class="block-hint" id="genre-selected-count">0 selected</span>
+          </div>
+          <div class="genre-grid" id="genre-grid"></div>
+        </div>
+
+        <!-- Tropes & Thematic Tags -->
+        <div class="discover-card-block">
+          <div class="block-header">
+            <h3 class="block-title">Tropes, Themes &amp; Elements</h3>
+            <div class="tag-search-wrapper">
+              <input type="text" id="tag-filter-input" placeholder="Filter tropes (e.g. Necromancer)..." autocomplete="off" />
+            </div>
+          </div>
+          <div class="tags-grid" id="tags-grid"></div>
+        </div>
+
+        <!-- Custom Prompt & Vibe -->
+        <div class="discover-card-block">
+          <div class="block-header">
+            <h3 class="block-title">Custom Nuance / Extra Vibe</h3>
+            <span class="block-hint">Describe specific tropes, relationships, or worldbuilding</span>
+          </div>
+          <div class="custom-prompt-wrapper">
+            <div class="custom-prompt-icon">✦</div>
+            <input type="text" id="custom-input" placeholder="e.g. 'A cold calculating MC who exploits the glitch in a tower with alchemy and no romance'..." autocomplete="off" />
+          </div>
+          <div class="prompt-suggestions">
+            <span class="prompt-sugg-label">Try ideas:</span>
+            <button class="prompt-sugg-chip">"Cold, ruthless MC with no useless mercy"</button>
+            <button class="prompt-sugg-chip">"Rich kingdom building and strategic warfare"</button>
+            <button class="prompt-sugg-chip">"Slow-burn enemies to lovers with high stakes"</button>
+            <button class="prompt-sugg-chip">"Weakest hunter who discovers an ancient secret class"</button>
+          </div>
         </div>
 
         <div id="discover-inline-msg" class="inline-msg" aria-live="polite" hidden></div>
 
-        <button id="discover-btn">
-          <span>Discover</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        </button>
-      </section>
-    </div>
+        <!-- Main Discover CTA -->
+        <div class="discover-submit-bar">
+          <button id="discover-btn" class="discover-submit-btn">
+            <span class="btn-glow"></span>
+            <span class="btn-content">
+              <span>Unleash Recommendations</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </span>
+          </button>
+        </div>
+      </div>
+    </section>
 
     <!-- ════════════════════════
          VIEW: RESULTS
     ════════════════════════ -->
-    <div id="view-results">
-      <div class="results-nav">
-        <button id="back-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          <span>Back</span>
-        </button>
-        <div class="results-query-tags" id="results-query-tags"></div>
-      </div>
+    <section id="view-results" class="view-panel">
+      <div class="results-container">
+        <!-- Results Top Navigation -->
+        <div class="results-topbar">
+          <button id="back-btn" class="back-link-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            <span>Back</span>
+          </button>
+          <div class="results-query-tags" id="results-query-tags"></div>
+        </div>
 
-      <div id="loading">
-        <div class="loading-inner">
-          <img src="./icon-192.png" alt="" class="loading-logo" />
-          <p class="loading-text">Searching the archives</p>
-          <div class="loading-dots"><span></span><span></span><span></span></div>
+        <!-- Skeleton Loader -->
+        <div id="loading" class="results-loading-wrap">
+          <div class="loading-status-box">
+            <div class="loading-logo-spin">
+              <img src="./icon-192.png" alt="Loading" class="loading-logo" />
+            </div>
+            <h3 class="loading-heading">Consulting the Archives</h3>
+            <p class="loading-text">Analyzing tropes, matching themes, and enriching metadata with AniList...</p>
+            <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+          </div>
+          <div class="cards-skeleton-grid">
+            <div class="card-skeleton"></div>
+            <div class="card-skeleton"></div>
+            <div class="card-skeleton"></div>
+            <div class="card-skeleton"></div>
+            <div class="card-skeleton"></div>
+            <div class="card-skeleton"></div>
+          </div>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-msg" class="results-error-state" style="display:none;"></div>
+
+        <!-- Empty State -->
+        <div id="results-empty" class="results-empty" hidden>
+          <div class="empty-icon">読</div>
+          <h3 class="results-empty-title">No direct matches found</h3>
+          <p class="results-empty-text">We couldn't find exact titles matching that specific combination. Try loosening a tag or exploring a different genre mix.</p>
+          <div class="empty-actions">
+            <button id="empty-reset-btn" class="btn btn-primary" type="button">Reset Filters</button>
+            <button id="empty-random-btn" class="btn btn-secondary" type="button">Surprise Me 🎲</button>
+          </div>
+        </div>
+
+        <!-- Results Content -->
+        <div id="results-content" style="display:none;">
+          <!-- Results Header & Controls -->
+          <div class="results-header-box">
+            <div class="results-heading-group">
+              <h2 class="results-title" id="results-title">Recommendations</h2>
+              <span class="results-meta" id="results-meta">0 titles found</span>
+            </div>
+
+            <!-- In-Results Filter & Sort Controls -->
+            <div class="results-controls">
+              <!-- Live Filter Search within results -->
+              <div class="results-filter-search">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" id="results-filter-input" placeholder="Filter current results..." autocomplete="off" />
+              </div>
+
+              <!-- Sort Dropdown -->
+              <div class="results-sort-wrap">
+                <label for="results-sort-select">Sort by:</label>
+                <select id="results-sort-select" class="results-sort-select">
+                  <option value="default">AI Relevancy</option>
+                  <option value="rating">Highest Rated ★</option>
+                  <option value="title">Title (A-Z)</option>
+                  <option value="type">Format</option>
+                </select>
+              </div>
+
+              <!-- View Layout Switcher -->
+              <div class="results-view-mode">
+                <button class="view-mode-btn active" data-view="grid" title="Poster Grid View">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+                </button>
+                <button class="view-mode-btn" data-view="list" title="Detailed List View">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cards Grid -->
+          <div class="cards-grid" id="cards-grid"></div>
+
+          <!-- Load More -->
+          <div id="load-more-wrapper" class="load-more-wrapper">
+            <button id="load-more-btn" class="btn btn-load-more">
+              <span id="load-more-text">Discover 10 More</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7-7 7"/></svg>
+            </button>
+          </div>
         </div>
       </div>
+    </section>
 
-      <p id="error-msg"></p>
-      <div id="results-empty" class="results-empty" hidden>
-        <p class="results-empty-title">No matches yet</p>
-        <p class="results-empty-text">Try a broader search or mix in a different genre or tag.</p>
-        <button id="empty-reset-btn" class="results-empty-btn" type="button">Reset</button>
-      </div>
-
-      <div id="results-content" style="display:none;">
-        <div class="results-header">
-          <h2 class="results-title" id="results-title"></h2>
-          <span class="results-meta" id="results-meta"></span>
+    <!-- ════════════════════════
+         VIEW: MY LIBRARY (BOOKMARKS)
+    ════════════════════════ -->
+    <section id="view-library" class="view-panel">
+      <div class="library-container">
+        <div class="library-topbar">
+          <button class="back-link-btn" id="library-back-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            <span>Back</span>
+          </button>
+          <div class="library-io-btns">
+            <button class="pill-action-btn" id="library-export-btn" title="Export Bookmarks as JSON">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              <span>Export</span>
+            </button>
+            <button class="pill-action-btn" id="library-import-btn" title="Import Bookmarks">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+              <span>Import</span>
+            </button>
+            <input type="file" id="library-file-input" accept=".json" style="display:none;" />
+          </div>
         </div>
-        <div class="gold-divider"></div>
-        <div class="cards-grid" id="cards-grid"></div>
-        <div id="load-more-wrapper">
-          <button id="load-more-btn">
-            <span id="load-more-text">Load More</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7-7 7"/></svg>
+
+        <div class="library-header">
+          <div class="section-badge">金 · 흑 · 読 · READING VAULT</div>
+          <h2 class="library-title">My Saved Library</h2>
+          <p class="library-subtitle">Keep track of your bookmarked manga, manhwa, manhua, and light novels offline.</p>
+        </div>
+
+        <!-- Library Filter Bar -->
+        <div class="library-controls-bar">
+          <div class="library-filter-tabs" id="library-format-filters">
+            <button class="lib-tab active" data-format="all">All (<span id="lib-count-all">0</span>)</button>
+            <button class="lib-tab" data-format="Manga">Manga (<span id="lib-count-manga">0</span>)</button>
+            <button class="lib-tab" data-format="Manhwa">Manhwa (<span id="lib-count-manhwa">0</span>)</button>
+            <button class="lib-tab" data-format="Manhua">Manhua (<span id="lib-count-manhua">0</span>)</button>
+            <button class="lib-tab" data-format="Light Novel">Light Novels (<span id="lib-count-ln">0</span>)</button>
+          </div>
+
+          <div class="library-search-wrap">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" id="library-search-input" placeholder="Search saved titles..." autocomplete="off" />
+          </div>
+        </div>
+
+        <!-- Library Cards Grid -->
+        <div class="library-cards-grid" id="library-cards-grid"></div>
+
+        <!-- Empty Library State -->
+        <div id="library-empty" class="library-empty" style="display:none;">
+          <div class="empty-icon">🔖</div>
+          <h3 class="library-empty-title">Your library is currently empty</h3>
+          <p class="library-empty-text">Click the bookmark icon on any recommendation card to save it here for later reading.</p>
+          <button id="library-explore-btn" class="btn btn-primary" type="button">Explore Recommendations</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════
+         FOOTER
+    ════════════════════════ -->
+    <footer class="app-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <img src="./icon-192.png" alt="Kindoku" class="footer-logo-icon" />
+          <h3 class="footer-logo">Kindoku</h3>
+          <p class="footer-tagline">Discover. Read. Obsess.</p>
+        </div>
+
+        <div class="footer-kanji-row">
+          <div class="footer-kanji-card" title="Japanese Manga">
+            <span class="f-kanji">金</span>
+            <span class="f-desc">Gold · Manga</span>
+          </div>
+          <div class="footer-kanji-card" title="Korean Manhwa">
+            <span class="f-kanji">흑</span>
+            <span class="f-desc">Black · Manhwa</span>
+          </div>
+          <div class="footer-kanji-card" title="Chinese Manhua">
+            <span class="f-kanji">読</span>
+            <span class="f-desc">Read · Manhua</span>
+          </div>
+        </div>
+
+        <div class="footer-bottom">
+          <p class="footer-copy">Crafted for comic &amp; novel obsessives everywhere. Metadata powered by AniList GraphQL.</p>
+        </div>
+      </div>
+    </footer>
+
+    <!-- ════════════════════════
+         MODAL: TITLE DETAIL MODAL
+    ════════════════════════ -->
+    <div id="detail-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="modal-card detail-modal-card">
+        <button class="modal-close-btn" id="detail-modal-close" aria-label="Close Modal">✕</button>
+        <div class="detail-modal-inner" id="detail-modal-content">
+          <!-- Dynamically Populated -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════
+         MODAL: COMMAND PALETTE (CMD+K)
+    ════════════════════════ -->
+    <div id="cmd-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="modal-card cmd-modal-card">
+        <div class="cmd-input-row">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="cmd-input" placeholder="Type a title, genre, trope or command..." autocomplete="off" />
+          <kbd class="cmd-esc-hint">ESC</kbd>
+        </div>
+        <div class="cmd-results-list" id="cmd-results-list">
+          <div class="cmd-section-label">QUICK ACTIONS</div>
+          <button class="cmd-item" data-cmd="discover">
+            <span class="cmd-icon">🧭</span>
+            <span class="cmd-text">Open Deep Discover Studio</span>
+            <span class="cmd-badge">Matrix</span>
+          </button>
+          <button class="cmd-item" data-cmd="random">
+            <span class="cmd-icon">🎲</span>
+            <span class="cmd-text">Roll Fate (Random Discovery)</span>
+            <span class="cmd-badge">Surprise</span>
+          </button>
+          <button class="cmd-item" data-cmd="library">
+            <span class="cmd-icon">🔖</span>
+            <span class="cmd-text">View My Saved Library</span>
+            <span class="cmd-badge">Vault</span>
+          </button>
+
+          <div class="cmd-section-label">POPULAR ARCHIVES</div>
+          <button class="cmd-item" data-search="Solo Leveling">
+            <span class="cmd-icon">⚡</span>
+            <span class="cmd-text">Solo Leveling</span>
+            <span class="cmd-badge">Manhwa</span>
+          </button>
+          <button class="cmd-item" data-search="Omniscient Reader's Viewpoint">
+            <span class="cmd-icon">📖</span>
+            <span class="cmd-text">Omniscient Reader's Viewpoint</span>
+            <span class="cmd-badge">Manhwa</span>
+          </button>
+          <button class="cmd-item" data-search="Berserk">
+            <span class="cmd-icon">⚔️</span>
+            <span class="cmd-text">Berserk</span>
+            <span class="cmd-badge">Manga</span>
+          </button>
+          <button class="cmd-item" data-search="Lord of the Mysteries">
+            <span class="cmd-icon">🔮</span>
+            <span class="cmd-text">Lord of the Mysteries</span>
+            <span class="cmd-badge">Novel</span>
           </button>
         </div>
       </div>
     </div>
 
-    <footer>
-      <img src="./icon-192.png" alt="Kindoku" class="footer-logo-icon" />
-      <p class="footer-logo">Kindoku</p>
-      <p class="footer-text">Discover. Read. Obsess.</p>
-      <div class="footer-langs">
-        <span class="footer-lang" title="Japanese">金</span>
-        <span class="footer-lang" title="Korean">흑</span>
-        <span class="footer-lang" title="Chinese">読</span>
-      </div>
-    </footer>
-
     <!-- ════════════════════════
          IN-APP READER OVERLAY
     ════════════════════════ -->
-    <div id="reader-overlay" class="reader-overlay">
+    <div id="reader-overlay" class="reader-overlay" aria-hidden="true">
       <div class="reader-topbar">
         <button id="reader-close-btn" class="reader-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          Back
+          <span>Back to Kindoku</span>
         </button>
-        <span class="reader-title" id="reader-title"></span>
-        <a id="reader-external-btn" class="reader-btn" href="#" target="_blank" rel="noopener noreferrer">
-          Open Externally
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
-        </a>
+
+        <span class="reader-title" id="reader-title">Reading Preview</span>
+
+        <div class="reader-topbar-actions">
+          <button id="reader-copy-link-btn" class="reader-btn" title="Copy Reader Link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            <span>Copy</span>
+          </button>
+          <a id="reader-external-btn" class="reader-btn reader-btn-primary" href="#" target="_blank" rel="noopener noreferrer">
+            <span>Open Source</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
+          </a>
+        </div>
       </div>
+
       <div class="reader-body">
         <div id="reader-loading" class="reader-loading">
-          <div class="loading-dots"><span></span><span></span><span></span></div>
-          <p>Loading reader…</p>
+          <div class="loading-spinner"></div>
+          <p>Connecting to reader source...</p>
         </div>
+
         <div id="reader-blocked" class="reader-blocked">
-          <p class="reader-blocked-title">This site can't be displayed inside Kindoku</p>
-          <p class="reader-blocked-hint">Some reading sites block being embedded. No problem — open it directly instead.</p>
-          <a id="reader-blocked-external-btn" class="reader-blocked-btn" href="#" target="_blank" rel="noopener noreferrer">Open Externally</a>
+          <div class="blocked-card">
+            <div class="blocked-icon">🔒</div>
+            <h3 class="reader-blocked-title">Protected Reader Source</h3>
+            <p class="reader-blocked-hint">This external reader enforces browser security headers that prevent framed embedding. You can read it directly below:</p>
+            <div class="blocked-actions">
+              <a id="reader-blocked-external-btn" class="btn btn-primary" href="#" target="_blank" rel="noopener noreferrer">
+                <span>Open in Full Browser Tab</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
+              </a>
+              <div class="reader-alt-sources">
+                <span class="alt-sources-label">Alternative Free Search:</span>
+                <div class="alt-sources-chips" id="reader-alt-chips"></div>
+              </div>
+            </div>
+          </div>
         </div>
+
         <iframe id="reader-iframe" class="reader-iframe" title="Kindoku Reader" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
       </div>
+    </div>
+
+    <!-- ════════════════════════
+         MOBILE BOTTOM NAVIGATION
+    ════════════════════════ -->
+    <div class="mobile-bottom-nav">
+      <button class="mob-nav-btn active" data-nav="landing">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="mob-nav-btn" data-nav="discover">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+        <span>Discover</span>
+      </button>
+      <button class="mob-nav-btn" data-nav="search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <span>Search</span>
+      </button>
+      <button class="mob-nav-btn" data-nav="library">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+        <span>Library</span>
+      </button>
     </div>
 
   </div>
