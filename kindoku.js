@@ -331,6 +331,11 @@ const readerBlocked = document.getElementById('reader-blocked');
 const readerBlockedExternalBtn = document.getElementById('reader-blocked-external-btn');
 const readerAltChips = document.getElementById('reader-alt-chips');
 
+// Translate buttons aren't in the static HTML — they're created once on first
+// use and reused after that (see openReader).
+let readerTranslateBtn = document.getElementById('reader-translate-btn');
+let readerBlockedTranslateBtn = document.getElementById('reader-blocked-translate-btn');
+
 // ── Bookmarks / Library Manager ────────────────────────────────────────────
 function getLibraryBookmarks() {
   try {
@@ -1017,11 +1022,21 @@ function createCardElement(r, isLibraryCard = false) {
 }
 
 // ── Read Action & In-App Reader Controller ──────────────────────────────────
+
+// Chrome's built-in "Translate this page" prompt only fires for top-level
+// navigations — it never appears for content loaded inside our reader
+// iframe, and installed-PWA link opens can also skip it. Wrapping the URL
+// in Google's translate proxy gets a translated version regardless.
+function toTranslatedUrl(url) {
+  return `https://translate.google.com/translate?sl=auto&tl=en&u=${encodeURIComponent(url)}`;
+}
+
 function handleReadAction(rec) {
   if (rec.isDirectLink && rec.readUrl) {
     openReader(rec.readUrl, rec.title, rec.type);
   } else if (rec.readUrl) {
     window.open(rec.readUrl, '_blank', 'noopener,noreferrer');
+    showToast('Tip: use the Translate to English button if the page loads in another language', '🌐');
   } else {
     const fallbackUrl = `https://www.google.com/search?q=read+${encodeURIComponent(rec.title)}`;
     window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
@@ -1039,6 +1054,33 @@ function openReader(url, title, type = 'Manga') {
   if (readerTitle) readerTitle.textContent = `${title} (${type})`;
   if (readerExternalBtn) readerExternalBtn.href = url;
   if (readerBlockedExternalBtn) readerBlockedExternalBtn.href = url;
+
+  // Translate to English — create the buttons once, next to their
+  // corresponding "open externally" buttons, then just update the href
+  // on every subsequent openReader() call.
+  const translatedUrl = toTranslatedUrl(url);
+
+  if (!readerTranslateBtn && readerExternalBtn) {
+    readerTranslateBtn = document.createElement('a');
+    readerTranslateBtn.id = 'reader-translate-btn';
+    readerTranslateBtn.target = '_blank';
+    readerTranslateBtn.rel = 'noopener noreferrer';
+    readerTranslateBtn.className = readerExternalBtn.className;
+    readerTranslateBtn.textContent = 'Translate to English';
+    readerExternalBtn.insertAdjacentElement('afterend', readerTranslateBtn);
+  }
+  if (readerTranslateBtn) readerTranslateBtn.href = translatedUrl;
+
+  if (!readerBlockedTranslateBtn && readerBlockedExternalBtn) {
+    readerBlockedTranslateBtn = document.createElement('a');
+    readerBlockedTranslateBtn.id = 'reader-blocked-translate-btn';
+    readerBlockedTranslateBtn.target = '_blank';
+    readerBlockedTranslateBtn.rel = 'noopener noreferrer';
+    readerBlockedTranslateBtn.className = readerBlockedExternalBtn.className;
+    readerBlockedTranslateBtn.textContent = 'Translate to English';
+    readerBlockedExternalBtn.insertAdjacentElement('afterend', readerBlockedTranslateBtn);
+  }
+  if (readerBlockedTranslateBtn) readerBlockedTranslateBtn.href = translatedUrl;
 
   if (readerCopyLinkBtn) {
     readerCopyLinkBtn.onclick = () => {
