@@ -434,6 +434,7 @@ h1, h2, h3, .serif-heading {
   font-weight: 700;
   letter-spacing: 0.08em;
   background: linear-gradient(135deg, var(--accent-light), var(--accent-primary), var(--accent-dim));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   line-height: 1.1;
@@ -713,6 +714,7 @@ h1, h2, h3, .serif-heading {
   line-height: 1;
   letter-spacing: 0.02em;
   background: linear-gradient(135deg, #ffffff 0%, var(--accent-light) 30%, var(--accent-primary) 70%, var(--accent-dim) 100%);
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 35px var(--accent-glow));
@@ -961,6 +963,7 @@ h1, h2, h3, .serif-heading {
   font-size: clamp(1.8rem, 4vw, 2.8rem);
   margin-bottom: 12px;
   background: linear-gradient(135deg, var(--text-primary), var(--accent-light));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -1192,7 +1195,7 @@ h1, h2, h3, .serif-heading {
   font-size: clamp(2rem, 4vw, 3rem);
   margin-bottom: 8px;
   background: linear-gradient(135deg, var(--text-primary), var(--accent-light));
-  -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .discover-subtitle {
@@ -1902,6 +1905,7 @@ h1, h2, h3, .serif-heading {
   margin-bottom: 16px;
   display: -webkit-box;
   -webkit-line-clamp: 4;
+  line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
   flex: 1;
@@ -1968,7 +1972,7 @@ h1, h2, h3, .serif-heading {
   height: 100%;
 }
 .cards-grid.list-view .card-synopsis {
-  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 .cards-grid.list-view .card-footer {
   width: 220px;
@@ -2522,6 +2526,7 @@ h1, h2, h3, .serif-heading {
 .footer-logo {
   font-size: 1.4rem;
   background: linear-gradient(135deg, var(--accent-light), var(--accent-primary));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 4px;
