@@ -1267,7 +1267,16 @@ Only return the JSON array. No other text.`;
   // Ordered best-first. `llama3-70b-8192` and `gemma2-9b-it` were retired from
   // the Groq API: keeping them here only added two guaranteed 404 round-trips
   // (plus 2.4s of sleeps) to every failed request.
-  const GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+  // Groq retired llama-3.3-70b-versatile and llama-3.1-8b-instant on 2026-08-16
+  // for free and developer-tier keys; both are now Enterprise-only. A free key
+  // asking for either gets model_not_found immediately, which is why the whole
+  // AI stage silently fell back to AniList for weeks.
+  //
+  // Ordered fastest first. 20B runs at ~1000 tok/s against 120B's ~500, and the
+  // request budget is 7s, so the faster model is the one that can actually
+  // finish; 120B is the quality fallback. Candidates are verified against
+  // AniList either way, so a hallucinated title is dropped rather than shown.
+  const GROQ_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 
   const cacheKey = JSON.stringify({
     mode,
@@ -1351,7 +1360,17 @@ function describeResponse(status, body) {
                 },
               ],
               temperature: 0.8,
-              max_tokens: 2500,
+              // Reasoning tokens count against this budget, so it needs
+              // headroom over the ~1500 the JSON answer needs. Cutting it off
+              // yields empty content rather than a short list.
+              max_tokens: 3000,
+              // GPT-OSS reasons before answering and the default effort burns
+              // enough of the budget above to truncate the answer. "low" is the
+              // smallest setting Groq offers for these models.
+              reasoning_effort: "low",
+              // The reasoning trace is not used and can be longer than the
+              // answer, so do not pay to transfer it.
+              include_reasoning: false,
             }),
             signal: budget.deadline.signal,
           },
@@ -1391,10 +1410,18 @@ function describeResponse(status, body) {
 
       const raw = data?.choices?.[0]?.message?.content;
       if (!raw) {
+        // On a reasoning model every emitted token, reasoning included, counts
+        // against max_tokens. Running out mid-answer yields an empty content
+        // field and finish_reason "length", which looks identical to a refusal
+        // unless the usage is reported alongside it.
+        const choice = data?.choices?.[0];
         failures.push({
           model,
-          reason: "no content in the choice",
-          finishReason: data?.choices?.[0]?.finish_reason || null,
+          reason: choice?.message?.reasoning
+            ? "reasoning consumed the whole token budget; the answer was cut off"
+            : "no content in the choice",
+          finishReason: choice?.finish_reason || null,
+          completionTokens: data?.usage?.completion_tokens ?? null,
         });
         continue;
       }

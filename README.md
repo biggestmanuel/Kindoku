@@ -40,11 +40,14 @@ npm run lint         # syntax check on the three shipped JS files
 npm run check        # lint + full suite (run this)
 npm run verify       # lint + suite twice; catches cross-test state leakage
 npm run test:live    # AniList contract tests, needs network
+npm run test:groq    # Groq contract tests, needs GROQ_API_KEY
 npm run test:deployed  # contract tests against the live deployment, needs network
 ```
 
-`npm test` deliberately excludes `live` and `deployed`, which both need network
-and are run explicitly.
+`npm test` deliberately excludes the three network-dependent suites. `live` and
+`deployed` need an explicit flag; `groq-live` runs by itself whenever
+`GROQ_API_KEY` is present in the environment, and skips with a message
+otherwise.
 
 The suite uses Node's built-in `node:test` runner. There is nothing to install.
 
@@ -63,6 +66,8 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `diagnostics.test.mjs` | Every distinct upstream failure is reported, the logs never contain the API key or the user's query, and a dead AI path still degrades to the fallback. |
 | `integrity.test.mjs` | Cross-file drift: every `getElementById` target exists, every injected class is styled, every precached asset exists, nothing unescaped reaches an `innerHTML`. |
 | `live.test.mjs` | Contract tests against the real AniList API. Run by `npm run test:live`. |
+| `models.test.mjs` | The Groq model ladder contains no retired model, and its length fits inside the request budget. |
+| `groq-live.test.mjs` | Contract tests against the real Groq API. Runs automatically when `GROQ_API_KEY` is set, skipped otherwise. |
 | `deployed.test.mjs` | Contract tests against the live deployment, including which build is currently shipped. Run by `npm run test:deployed`. |
 
 ### CI
@@ -107,15 +112,43 @@ so a dead Groq integration looks completely healthy from the user's side. Every
 failure is therefore logged to the Vercel logs with an actionable hint:
 
 ```
-[kindoku] groq failed {"service":"groq","model":"llama-3.3-70b-versatile,llama-3.1-8b-instant",
+[kindoku] groq failed {"service":"groq","model":"openai/gpt-oss-20b,openai/gpt-oss-120b",
  "reason":"all models failed; falling back to AniList",
- "attempts":[{"model":"llama-3.3-70b-versatile","reason":"http error","status":401,
-   "code":"invalid_api_key","message":"Invalid API Key"}],
- "hint":"GROQ_API_KEY is missing, malformed or revoked"}
+ "attempts":[{"model":"openai/gpt-oss-20b","reason":"http error","status":400,
+   "code":"model_not_found","message":"..."}],
+ "hint":"a model name is no longer served by Groq; update GROQ_MODELS"}
 ```
 
 The key and the user's query are never written to the log — `diagnostics.test.mjs`
-asserts both.
+asserts both. One line per request is expected for as long as the fault lasts;
+that is deliberate, because a fault that only appears intermittently needs its
+own line each time.
+
+### Groq model lifecycle
+
+A model list is external data with an expiry date, and this one bit the project
+hard: Groq retired `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` on
+**2026-08-16** for free and developer-tier keys, making both Enterprise-only. The
+AI stage had been dead for seven weeks and every response still said 200.
+
+Three things now guard against a repeat:
+
+- `models.test.mjs` pins the known-dead IDs and fails if the ladder lists one,
+  and asserts every configured model is one Groq currently serves.
+- `groq-live.test.mjs` compares the ladder against the live catalogue whenever a
+  key is available, so a retirement is caught the moment someone runs it with
+  `GROQ_API_KEY` set.
+- The request sends `reasoning_effort: "low"` and `include_reasoning: false`.
+  The replacements are reasoning models whose reasoning tokens count against
+  `max_tokens`, so without both the JSON answer is truncated mid-sentence and
+  arrives as an empty content field — a truncation that looks exactly like a
+  refusal.
+
+The ladder is ordered fastest first (`openai/gpt-oss-20b` at ~1000 tok/s ahead of
+`openai/gpt-oss-120b` at ~500) because the request budget is 7s: leading with the
+slower model spends most of it on one attempt and leaves no room for the AniList
+fallback. Candidates are verified against AniList either way, so a hallucinated
+title is dropped rather than shown.
 
 Line endings are pinned to LF by `.gitattributes`, so a Windows checkout and a
 Linux CI run operate on identical bytes. Without it, `core.autocrlf=true` wrote

@@ -146,15 +146,25 @@ test('the retry policy cannot multiply a timeout past the budget', () => {
   );
 });
 
-test('the model ladder cannot start more attempts than the budget allows', () => {
-  // Each attempt is preceded by a short sleep, so even the count of possible
-  // attempts must fit.
-  const modelCount = (apiSource.match(/"llama-[^"]+"/g) || []).length;
+test('every model in the ladder is reachable within the budget', () => {
+  // Each attempt is preceded by a sleep and is only started if at least
+  // MIN_ATTEMPT_BUDGET_MS remains, so a ladder longer than the number of
+  // attempts the budget allows has unreachable entries at the end.
+  const match = apiSource.match(/const GROQ_MODELS\s*=\s*\[([^\]]*)\]/);
+  assert.ok(match, 'GROQ_MODELS is no longer a literal array; update this test');
+  const modelCount = [...match[1].matchAll(/"([^"]+)"/g)].length;
   assert.ok(modelCount > 0, 'expected at least one model in the ladder');
+
   const attemptsThatFit = Math.floor(TIMING.TOTAL_BUDGET_MS / TIMING.MIN_ATTEMPT_BUDGET_MS);
   assert.ok(
     attemptsThatFit >= 1,
     'the budget must allow at least one AI attempt'
+  );
+  assert.ok(
+    modelCount <= attemptsThatFit,
+    `the ladder lists ${modelCount} models but the budget only allows ` +
+    `${attemptsThatFit} attempt(s), so the last ${modelCount - attemptsThatFit} ` +
+    'can never be tried'
   );
 });
 

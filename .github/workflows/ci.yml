@@ -59,15 +59,15 @@ jobs:
         run: node --test tests/service-worker.test.mjs
 
   live:
-    name: AniList contract
-    # Talks to a third-party API that allows 30 requests per minute and is not
-    # under this repository's control. Running it on every push would burn that
-    # budget and make the branch check flaky for reasons unrelated to the change
-    # under test, so it runs on a schedule and on demand instead.
+    name: Third-party contracts
+    # Talks to APIs that allow 30 requests per minute and are not under this
+    # repository's control. Running them on every push would burn that budget
+    # and make the branch check flaky for reasons unrelated to the change under
+    # test, so they run on a schedule and on demand instead.
     if: github.event_name != 'push' && github.event_name != 'pull_request'
     needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -79,17 +79,32 @@ jobs:
       - name: Verify every UI tag and query shape against the live API
         run: npm run test:live
 
+      # Groq retired both models this app used on 2026-08-16 and the AI stage
+      # stayed silently dead for seven weeks, because the AniList fallback makes
+      # a broken AI path look healthy. This compares the configured ladder
+      # against Groq's live catalogue so the next retirement is caught on a
+      # schedule instead of by a user.
+      #
+      # Needs the GROQ_API_KEY secret. Without it these tests skip themselves
+      # with a message, so this step is safe to run either way.
+      - name: Verify the model ladder against Groq's live catalogue
+        run: npm run test:groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
   deployed:
     name: Production smoke test
-    # Contract tests against the live deployment. This is the only suite that
-    # exercises the real Groq pipeline, because GROQ_API_KEY lives in Vercel and
-    # never leaves it.
+    # Contract tests against the live deployment, including which build is
+    # currently shipped.
     #
     # Not on every push: Vercel deploys asynchronously, so a job fired
     # immediately after a merge would race the deployment and report failures
     # for a build that has not shipped yet. GitHub cannot wait for Vercel's
     # webhook from inside this workflow, so this runs on a schedule and on
     # demand. Run it locally right after deploying with `npm run test:deployed`.
+    #
+    # Needs no secret: the deployment holds its own GROQ_API_KEY and this suite
+    # reads only what the endpoint reports about itself.
     if: github.event_name != 'push' && github.event_name != 'pull_request'
     needs: check
     runs-on: ubuntu-latest

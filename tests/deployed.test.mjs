@@ -309,24 +309,67 @@ test('deployed: the app shell is served and references its assets', { timeout: T
   assert.match(text, /kindoku\.js/, 'the shell does not reference the script');
 });
 
-test('deployed: an unknown path still serves the app shell', { timeout: TEST_TIMEOUT_MS }, async () => {
-  // The rewrite must exclude /api/ but catch everything else, or a deep link
-  // 404s instead of opening the app.
-  const { status, text } = await postJson('/some/deep/link');
-  assert.equal(status, 200, 'a client-side route returned a non-200');
-  assert.match(text, /id="view-landing"/, 'a client-side route did not serve the shell');
+// kindoku.js has no pushState, no hash routing and no popstate listener: every
+// view is switched in JavaScript from index.html. There is no deep link a user
+// could hold, so there is no SPA rewrite in vercel.json and a 404 on an
+// arbitrary path is correct rather than a bug. What does matter is that every
+// path the app really uses is served, with the right content type — a renamed
+// asset or a missing icon otherwise surfaces only as a silent console error or
+// a blank install prompt on a user's device.
+const ENTRY_POINTS = [
+  { path: '/', type: /text\/html/, mustMatch: /id="view-landing"/ },
+  { path: '/index.html', type: /text\/html/, mustMatch: /kindoku\.js/ },
+  { path: '/kindoku.css', type: /text\/css/ },
+  { path: '/kindoku.js', type: /(javascript|ecmascript)/ },
+  { path: '/sw.js', type: /(javascript|ecmascript)/ },
+  { path: '/site.webmanifest', type: /json/ },
+  { path: '/favicon.ico', type: /image/ },
+  { path: '/favicon-16x16.png', type: /image/ },
+  { path: '/favicon-32x32.png', type: /image/ },
+  { path: '/favicon-48x48.png', type: /image/ },
+  { path: '/apple-touch-icon.png', type: /image/ },
+  { path: '/icon-192.png', type: /image/ },
+  { path: '/icon-512.png', type: /image/ },
+];
+
+for (const asset of ENTRY_POINTS) {
+  test(`deployed: ${asset.path} is served as ${asset.type}`, { timeout: TEST_TIMEOUT_MS }, async () => {
+    const { status, headers, text } = await postJson(asset.path);
+    assert.equal(status, 200, `${asset.path} is not served`);
+    assert.match(
+      headers.get('content-type') || '',
+      asset.type,
+      `${asset.path} has the wrong content-type, so the browser refuses it`
+    );
+    if (asset.mustMatch) {
+      assert.match(text, asset.mustMatch, `${asset.path} served unexpected content`);
+    }
+  });
+}
+
+test('deployed: the API path is not shadowed by the static shell', { timeout: TEST_TIMEOUT_MS }, async () => {
+  // The reason there is no catch-all rewrite. If one is ever added, the function
+  // must still win, otherwise every request silently returns HTML.
+  const { status, headers } = await postJson('/api/recommend');
+  assert.notEqual(status, 404, 'the function is not routed');
+  assert.doesNotMatch(
+    headers.get('content-type') || '',
+    /text\/html/,
+    '/api/recommend returned HTML, so a rewrite is shadowing the function'
+  );
 });
 
 // ── Which build is deployed ───────────────────────────────────────────────
 
 test('deployed: the current build is running', { timeout: TEST_TIMEOUT_MS }, async () => {
   // `exhausted` exists only in the rewritten handler, where an exhausted result
-  // set is a 200 rather than a 500.
+  // set is a 200 with a flag rather than a 500. It is emitted only when the
+  // result set is empty, so this has to ask for something that genuinely
+  // matches nothing — a deep page number still returns titles, because
+  // pagination is exactly what the rewrite added.
   const { status, json } = await request({
-    mode: 'discover',
-    genres: ['Action'],
-    formats: ['Manhwa'],
-    page: 50, // far past the end of AniList's result set
+    mode: 'search',
+    searchInput: 'Zzzqqxwv Not A Real Title 99871',
   });
   assert.equal(status, 200);
   assert.ok(
@@ -334,18 +377,32 @@ test('deployed: the current build is running', { timeout: TEST_TIMEOUT_MS }, asy
     'the response has no "exhausted" field, so a pre-rewrite build is deployed. ' +
     'Commit the current code and redeploy.'
   );
+  assert.equal(json.exhausted, true);
+  assert.deepEqual(json.recommendations, [],
+    'an exhausted result set must not invent recommendations');
 });
 
 test('deployed: the AI path is reachable', { timeout: TEST_TIMEOUT_MS }, async () => {
   // The fallback engine is fully functional, so Groq being unreachable forever
-  // looks healthy from the user's side. This surfaces it.
+  // looks healthy from the user's side. This is the canary for it.
+  //
+  // The handler already logs why the AI stage failed, so this test only has to
+  // say what to do next rather than leaving a dead feature to be noticed by a
+  // user months later.
   const { json } = await request({ mode: 'search', searchInput: 'Berserk' });
   assert.ok(json.model && typeof json.model === 'string',
     'the response does not report which engine answered');
   assert.notEqual(
     json.model,
     'AniList Direct Engine',
-    'Groq answered nothing: every request fell back to AniList. Check that ' +
-    'GROQ_API_KEY is set on the deployment and that the model names are current.'
+    'Groq answered nothing: every request fell back to AniList.\n' +
+    '  This is a production fault, not a test fault. Open the Vercel project ->\n' +
+    '  Logs, trigger a search, and look for the line starting "[kindoku] groq\n' +
+    '  failed". Its "hint" field names the cause directly:\n' +
+    '    "GROQ_API_KEY is missing, malformed or revoked"  -> check the env var\n' +
+    '      is set on the deployment (a locally-set var is not deployed)\n' +
+    '    "a model name is no longer served by Groq"        -> update GROQ_MODELS\n' +
+    '    "the key\'s rate limit or quota is exhausted"      -> wait or upgrade\n' +
+    '  The fallback is working, so the app is usable meanwhile.'
   );
 });

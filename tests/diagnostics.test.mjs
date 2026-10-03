@@ -289,6 +289,64 @@ test('the logged output never contains the user prompt', async () => {
     `the user's query leaked into the logs: ${log}`);
 });
 
+test('the Groq request asks for low reasoning and enough token headroom', async () => {
+  // The replacements for the retired llama models are reasoning models: every
+  // emitted token, reasoning included, counts against max_tokens. Without an
+  // explicit low effort and headroom the answer is truncated mid-JSON, which
+  // surfaces as an empty content field rather than as a timeout.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  let sent = null;
+  globalThis.fetch = async (url, init) => {
+    if (url === GROQ_URL) {
+      sent = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '[{"title":"Fallback Title"}]' } }] }),
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  await captureLog(() => invoke({ mode: 'search', searchInput: 'Reasoning Params Probe' }));
+
+  assert.ok(sent, 'the Groq request was never sent');
+  assert.equal(sent.reasoning_effort, 'low',
+    'the default effort can spend the entire budget on reasoning');
+  assert.equal(sent.include_reasoning, false,
+    'the reasoning trace is never read, so it should not be transferred');
+
+  // Generous enough for reasoning plus a JSON array of full recommendations.
+  const estimate = 2000; // reasoning + 10 records with synopses
+  assert.ok(sent.max_tokens >= estimate,
+    `max_tokens is ${sent.max_tokens}, which leaves no room for reasoning ` +
+    'before the JSON answer is cut off');
+});
+
+test('a truncated reasoning answer is reported as truncation', async () => {
+  // finish_reason "length" with no content is a budget problem, not a refusal,
+  // and the two need different fixes.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '', reasoning: 'thinking...' }, finish_reason: 'length' }],
+          usage: { completion_tokens: 3000 },
+        }),
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Truncated Probe' }));
+  assert.match(log, /reasoning consumed the whole token budget/);
+  assert.match(log, /"completionTokens":3000/,
+    'the token usage is what makes this diagnosable');
+});
+
 test('the fallback still returns results when the AI path is broken', async () => {
   // The whole point of the fallback: a dead Groq must degrade, not break.
   process.env.GROQ_API_KEY = 'gsk_revoked-for-test';
