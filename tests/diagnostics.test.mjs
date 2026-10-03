@@ -419,6 +419,61 @@ test('a hallucinating AI stage falls back instead of returning an empty page', a
   assert.ok(res.length >= 0);
 });
 
+test('pages do not share a cached AI recommendation', async () => {
+  // The AI recommendation cache was keyed on everything except `page`, so two
+  // requests differing only by page shared one entry. The client grows `exclude`
+  // on every "Load More", which made the keys differ by accident and hid this —
+  // until page 1 returns nothing, `exclude` stays empty and page 2 is handed
+  // page 1's candidates, which is the repeat-forever bug pagination fixes.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+
+  let groqCall = 0;
+  globalThis.fetch = async (url, init) => {
+    if (url === GROQ_URL) {
+      groqCall += 1;
+      const title = groqCall === 1 ? 'First Page Only' : 'Second Page Only';
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify([{ title }]) } }],
+        }),
+      };
+    }
+    const body = String(init?.body || '');
+    const wanted = body.includes('Second Page Only') ? 'Second Page Only' : 'First Page Only';
+    const media = body.includes(wanted) ? [{
+      title: { english: wanted, romaji: wanted, native: wanted },
+      description: 'A story.',
+      coverImage: { large: null, medium: null },
+      averageScore: 80,
+      status: 'FINISHED',
+      genres: ['Action'],
+      siteUrl: null,
+      format: 'MANGA',
+      countryOfOrigin: 'JP',
+      externalLinks: [],
+    }] : [];
+    return { ok: true, status: 200, json: async () => ({ data: { Page: { media } } }) };
+  };
+
+  const first = createRes();
+  await handler(
+    { method: 'POST', body: { mode: 'discover', genres: ['Action'], formats: ['Manga'], page: 1 }, headers: {}, socket: {} },
+    first
+  );
+  const second = createRes();
+  await handler(
+    { method: 'POST', body: { mode: 'discover', genres: ['Action'], formats: ['Manga'], page: 2 }, headers: {}, socket: {} },
+    second
+  );
+
+  assert.deepEqual(first.body.recommendations.map(r => r.title), ['First Page Only']);
+  assert.deepEqual(second.body.recommendations.map(r => r.title), ['Second Page Only'],
+    'page 2 was served page 1\'s cached AI candidates');
+  assert.equal(groqCall, 2, 'the second page reused the first page\'s cache entry');
+});
+
 test('the fallback still returns results when the AI path is broken', async () => {
   // The whole point of the fallback: a dead Groq must degrade, not break.
   process.env.GROQ_API_KEY = 'gsk_revoked-for-test';

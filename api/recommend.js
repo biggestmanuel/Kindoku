@@ -1287,6 +1287,12 @@ Only return the JSON array. No other text.`;
     exclude,
     customInput,
     searchInput,
+    // Without this, page 2 and page 3 of a "Load More" sequence that arrives
+    // with the same exclude list share one entry, and the second page re-serves
+    // the first page's candidates — the exact repeat-forever bug pagination
+    // exists to fix. It only stayed hidden because the client grows `exclude`
+    // on every page, so keys happened to differ anyway.
+    page,
   });
 
   const cachedAi = getCachedValue(aiRecommendationCache, cacheKey);
