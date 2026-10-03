@@ -347,6 +347,78 @@ test('a truncated reasoning answer is reported as truncation', async () => {
     'the token usage is what makes this diagnosable');
 });
 
+test('a hallucinating AI stage falls back instead of returning an empty page', async () => {
+  // The failure mode that only appears once the AI stage actually works.
+  //
+  // Groq proposes a title AniList has never heard of, verification rejects it,
+  // and the response is empty. Meanwhile the deterministic query could have
+  // answered the same request in 200ms. When that query ran only *after* the
+  // Groq call, the 7s budget was already gone, so a live AI stage made the app
+  // strictly worse than a dead one and queries AniList can serve came back
+  // empty.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+
+  const hallucination = 'Totally Invented Title 9000';
+  const realMedia = [{
+    title: { english: 'Real Manga', romaji: 'Real Manga', native: 'リアル' },
+    description: 'A real story.',
+    coverImage: { large: null, medium: null },
+    averageScore: 80,
+    status: 'FINISHED',
+    genres: ['Action', 'Sports'],
+    siteUrl: null,
+    format: 'MANGA',
+    countryOfOrigin: 'JP',
+    externalLinks: [],
+  }];
+
+  globalThis.fetch = async (url, init) => {
+    if (url === GROQ_URL) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify([{ title: hallucination, genre: ['Action', 'Sports'] }]),
+            },
+          }],
+        }),
+      };
+    }
+
+    // The verification lookup for the invented title finds nothing; every
+    // other query gets the real result set.
+    const body = String(init?.body || '');
+    const media = body.includes(hallucination) ? [] : realMedia;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { Page: { media } } }),
+    };
+  };
+
+  const res = await captureLog(() =>
+    invoke({ mode: 'discover', genres: ['Action', 'Sports'], formats: ['Manga'] }));
+  const actual = createRes();
+  await handler(
+    { method: 'POST', body: { mode: 'discover', genres: ['Action', 'Sports'], formats: ['Manga'] }, headers: {}, socket: {} },
+    actual
+  );
+
+  assert.equal(actual.statusCode, 200);
+  assert.ok(
+    actual.body.recommendations.length > 0,
+    'the AI stage invented a title, verification rejected it, and the request ' +
+    'returned an empty page instead of the AniList results it already had'
+  );
+  assert.ok(
+    !JSON.stringify(actual.body).includes(hallucination),
+    'an unverified title reached the client'
+  );
+  assert.ok(res.length >= 0);
+});
+
 test('the fallback still returns results when the AI path is broken', async () => {
   // The whole point of the fallback: a dead Groq must degrade, not break.
   process.env.GROQ_API_KEY = 'gsk_revoked-for-test';

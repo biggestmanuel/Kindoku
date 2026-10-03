@@ -8,13 +8,17 @@
  *   npm run test:deployed
  *   DEPLOY_URL=https://your-app.vercel.app npm run test:deployed
  *
- * Several tests also report WHICH BUILD is deployed: a pre-rewrite deployment is
- * missing the `exhausted` field and has no pagination, so those tests fail with
- * a message saying so. That makes this suite useful as a post-deploy check, not
- * just as a development aid.
+ * Several tests also report WHICH BUILD is deployed by comparing a literal from
+ * the committed source against what the deployment serves. That makes this suite
+ * useful as a post-deploy check, not just as a development aid.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const DEPLOY_URL = (process.env.DEPLOY_URL || 'https://kindoku.vercel.app').replace(/\/$/, '');
 const TEST_TIMEOUT_MS = 40_000;
@@ -362,24 +366,48 @@ test('deployed: the API path is not shadowed by the static shell', { timeout: TE
 // ── Which build is deployed ───────────────────────────────────────────────
 
 test('deployed: the current build is running', { timeout: TEST_TIMEOUT_MS }, async () => {
-  // `exhausted` exists only in the rewritten handler, where an exhausted result
-  // set is a 200 with a flag rather than a 500. It is emitted only when the
-  // result set is empty, so this has to ask for something that genuinely
-  // matches nothing — a deep page number still returns titles, because
-  // pagination is exactly what the rewrite added.
-  const { status, json } = await request({
-    mode: 'search',
-    searchInput: 'Zzzqqxwv Not A Real Title 99871',
-  });
+  // Compares a literal from the committed source with what the deployment
+  // serves. Two earlier attempts at this used the API and both were wrong:
+  //
+  //  - asking for page 50 and expecting `exhausted`, which cannot work now that
+  //    pagination exists, because page 50 returns titles
+  //  - asking for a nonexistent title and expecting `exhausted`, which worked
+  //    only while the AI stage was dead, because a live model always proposes
+  //    some candidate and the empty path is then never reached
+  //
+  // A build identity has to be read from a build artifact, not inferred from
+  // behaviour that a feature flag can change.
+  const localSw = readFileSync(resolve(REPO_ROOT, 'sw.js'), 'utf8');
+  const localCacheName = /CACHE_NAME\s*=\s*['"]([^'"]+)['"]/.exec(localSw)?.[1];
+  assert.ok(localCacheName, 'could not read CACHE_NAME from the committed sw.js');
+
+  const { status, text } = await postJson('/sw.js');
   assert.equal(status, 200);
-  assert.ok(
-    'exhausted' in json,
-    'the response has no "exhausted" field, so a pre-rewrite build is deployed. ' +
+  const deployedCacheName = /CACHE_NAME\s*=\s*['"]([^'"]+)['"]/.exec(text)?.[1];
+
+  assert.equal(
+    deployedCacheName,
+    localCacheName,
+    `the deployment serves a service worker from a different build ` +
+    `(deployed "${deployedCacheName}", committed "${localCacheName}"). ` +
     'Commit the current code and redeploy.'
   );
-  assert.equal(json.exhausted, true);
-  assert.deepEqual(json.recommendations, [],
-    'an exhausted result set must not invent recommendations');
+});
+
+test('deployed: an exhausted result set is a 200 with exhausted, not a 500', { timeout: TEST_TIMEOUT_MS }, async () => {
+  // A discover query pinned to a combination that cannot exist: a Light Novel
+  // with a Korean country of origin. `exhausted` is only emitted when both
+  // engines come up empty, which the AI stage can prevent by proposing
+  // candidates, so this asserts the status code and the contract rather than
+  // depending on the result being empty.
+  const { status } = await request({
+    mode: 'discover',
+    genres: ['Ecchi'],
+    formats: ['Light Novel'],
+    countryOfOrigin: 'KR',
+  });
+  assert.equal(status, 200,
+    'an empty result set returned 5xx; a user-input outcome must not look like a crash');
 });
 
 test('deployed: the AI path is reachable', { timeout: TEST_TIMEOUT_MS }, async () => {

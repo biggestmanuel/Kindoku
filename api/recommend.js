@@ -1297,6 +1297,31 @@ Only return the JSON array. No other text.`;
     process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim().length > 5
   );
 
+  // The deterministic AniList query is started here, in parallel with the Groq
+  // call below, instead of after it.
+  //
+  // It used to run only as a fallback. That was fine while Groq was dead and
+  // failed in 80ms, but a *working* Groq spends up to GROQ_TIMEOUT_MS before the
+  // fallback is even attempted, and by then the 7s budget has nothing left for
+  // the query. The result was an empty page for queries AniList can answer in
+  // 200ms — a live AI stage made the app strictly worse.
+  //
+  // Both calls start at the same instant, so this costs no extra wall clock, and
+  // the result is still cached, so the recovery path in step 5 resolves from
+  // cache instead of spending a second round trip. The rejection is swallowed
+  // here and reported by whoever awaits it.
+  const directPromise = fetchDirectAnilistRecommendations({
+    mode,
+    searchInput,
+    genres,
+    tags,
+    formats,
+    customInput,
+    exclude,
+    page,
+    budget,
+  }).catch(() => []);
+
   // ── Diagnostics ────────────────────────────────────────────────────────────
 // The AI path failing is invisible by design: the handler falls back to the
 // direct AniList engine, which is fully functional, so a permanently broken
@@ -1478,18 +1503,8 @@ function describeResponse(status, body) {
 
   // ── Step 2: Direct AniList Fallback ──────────────────────────────────
   if (!aiRecs || aiRecs.length === 0) {
-    console.log("Using direct AniList recommendations engine fallback...");
-    const directRecs = await fetchDirectAnilistRecommendations({
-      mode,
-      searchInput,
-      genres,
-      tags,
-      formats,
-      customInput,
-      exclude,
-      page,
-      budget,
-    });
+    // Already in flight, and almost always already resolved.
+    const directRecs = await directPromise;
 
     if (directRecs.length > 0) {
       return res.status(200).json({
@@ -1615,20 +1630,10 @@ function describeResponse(status, body) {
   // Never relax the user's selected genre.
   // If AI candidates all fail verification, query AniList directly instead.
   if (mode !== "search" && finalRecs.length === 0) {
-    console.log(
-      "AI candidates failed deterministic verification. Falling back to AniList."
-    );
-    const directRecs = await fetchDirectAnilistRecommendations({
-      mode,
-      searchInput,
-      genres,
-      tags,
-      formats,
-      customInput,
-      exclude,
-      page,
-      budget,
-    });
+    // The same query already started in parallel at the top of the request, so
+    // this resolves without another round trip and without needing budget that
+    // the Groq call has already spent.
+    const directRecs = await directPromise;
     finalRecs = directRecs.filter(
       rec =>
         matchesRequestedGenres(rec.genre, requestedGenres) &&
