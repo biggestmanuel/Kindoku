@@ -1,0 +1,20 @@
+{
+  "name": "kindoku",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kindoku - manga / manhwa / manhua / light-novel recommender (static PWA + Vercel serverless API).",
+  "scripts": {
+    "test": "node --test \"tests/!(deployed|live).test.mjs\"",
+    "test:fast": "node --test --test-skip-pattern=\"^timing:\" \"tests/!(deployed|live).test.mjs\"",
+    "test:live": "ANILIST_LIVE=1 node --test tests/live.test.mjs",
+    "test:deployed": "node --test tests/deployed.test.mjs",
+    "test:watch": "node --test --watch \"tests/!(deployed|live).test.mjs\"",
+    "lint": "node --check kindoku.js && node --check sw.js && node --check api/recommend.js",
+    "check": "npm run lint && npm test",
+    "verify": "npm run lint && npm test && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

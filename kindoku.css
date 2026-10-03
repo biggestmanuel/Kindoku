@@ -240,7 +240,7 @@ a {
 }
 
 /* ── Typography & Display Headings ──────────────────────────────────────── */
-h1, h2, h3, .serif-heading {
+h1, h2, h3 {
   font-family: 'Yuji Syuku', 'Cinzel', serif;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -1377,6 +1377,10 @@ h1, h2, h3, .serif-heading {
 .genre-icon {
   font-size: 1.3rem;
 }
+.genre-label {
+  line-height: 1.25;
+  text-align: center;
+}
 
 /* Trope Tags Grid & Search */
 .tag-search-wrapper input {
@@ -2306,9 +2310,18 @@ h1, h2, h3, .serif-heading {
   text-align: left;
   transition: all var(--anim-fast);
 }
-.cmd-item:hover, .cmd-item.selected {
+.cmd-item:hover, .cmd-item.selected, .cmd-item.highlighted {
   background: var(--accent-glow-subtle);
   color: var(--accent-light);
+}
+.cmd-item[hidden] {
+  display: none;
+}
+.cmd-empty-state {
+  padding: 18px 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 .cmd-icon {
   font-size: 1.1rem;

@@ -1,0 +1,28 @@
+# Dependencies — the project currently has none, but node_modules must never be
+# committed if that changes.
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Local environment. `.env.example` IS committed; `.env` holds the real Groq key
+# and must never be.
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Coverage and test output
+coverage/
+*.lcov
+.nyc_output/
+
+# Vercel
+.vercel/

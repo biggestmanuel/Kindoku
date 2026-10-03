@@ -20,7 +20,9 @@ function showToast(message, icon = '✦', duration = 3200) {
   if (!toastContainer) return;
   const toast = document.createElement('div');
   toast.className = 'toast';
-  toast.innerHTML = `<span style="color:var(--accent-primary);">${icon}</span><span>${escapeHtml(message)}</span>`;
+  toast.setAttribute('role', 'status');
+  // The icon is a caller-supplied string, so it gets escaped like the message.
+  toast.innerHTML = `<span style="color:var(--accent-primary);">${escapeHtml(icon)}</span><span>${escapeHtml(message)}</span>`;
   toastContainer.appendChild(toast);
 
   setTimeout(() => {
@@ -50,7 +52,9 @@ function applyTheme(themeName) {
   document.documentElement.setAttribute('data-theme', themeName);
   localStorage.setItem('kindoku_theme', themeName);
   if (themeCurrentName) {
-    themeCurrentName.textContent = themeName.charAt(0).toUpperCase() + themeName.slice(1);
+    // Use the display name from the menu ("Imperial Gold"), not the raw key
+    // ("Gold") — the menu entry and the toast already showed the full name.
+    themeCurrentName.textContent = THEME_NAMES[themeName] || themeName;
   }
 }
 
@@ -128,7 +132,10 @@ class Particle {
     const dx = this.x - mouseX;
     const dy = this.y - mouseY;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 120) {
+    // `dist` is exactly 0 whenever a particle is spawned under (or drifts onto)
+    // the cursor. Dividing by it yields NaN, which permanently poisons this
+    // particle's coordinates and silently deletes it from the canvas.
+    if (dist > 0 && dist < 120) {
       const force = (120 - dist) / 120;
       this.x += (dx / dist) * force * 2.5;
       this.y += (dy / dist) * force * 2.5;
@@ -173,10 +180,26 @@ function animateParticles(t = 0) {
   requestAnimationFrame(animateParticles);
 }
 
+// Debounced so a drag-resize doesn't rebuild the whole particle field on every
+// single resize event.
+let resizeFrame = null;
 if (canvas) {
-  window.addEventListener('resize', () => { resizeCanvas(); initParticles(); });
+  window.addEventListener('resize', () => {
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      resizeCanvas();
+      initParticles();
+    });
+  });
   window.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
-  window.addEventListener('mouseleave', () => { mouseX = -1000; mouseY = -1000; });
+  // `mouseleave` never fires on `window` — it is an element-level event that
+  // only bubbles *down*. Listening on the document is what actually reports
+  // "the pointer left the page"; without it the last cursor position keeps
+  // repelling particles after the pointer is gone.
+  document.addEventListener('mouseleave', () => { mouseX = -1000; mouseY = -1000; });
+  // `blur` covers the pointer leaving the window while it keeps focus.
+  window.addEventListener('blur', () => { mouseX = -1000; mouseY = -1000; });
   resizeCanvas();
   initParticles();
   animateParticles();
@@ -254,6 +277,10 @@ let currentView = 'landing';
 let searchMode = 'all';
 let viewLayout = 'grid';
 let currentSort = 'default';
+// Which AniList results page "Load More" is asking for next.
+let currentPage = 1;
+// Set once the server reports it has nothing more; hides the button.
+let loadMoreExhausted = false;
 
 // ── DOM References ─────────────────────────────────────────────────────────
 const views = {
@@ -303,6 +330,8 @@ const viewModeBtns = document.querySelectorAll('.view-mode-btn');
 // Library DOM
 const libraryCardsGrid = document.getElementById('library-cards-grid');
 const libraryEmpty = document.getElementById('library-empty');
+const libraryNoMatches = document.getElementById('library-no-matches');
+const libraryNoMatchesText = document.getElementById('library-no-matches-text');
 const librarySearchInput = document.getElementById('library-search-input');
 const libraryFormatFilters = document.getElementById('library-format-filters');
 const navLibraryCount = document.getElementById('nav-library-count');
@@ -318,6 +347,7 @@ const cmdModal = document.getElementById('cmd-modal');
 const cmdTriggerBtn = document.getElementById('cmd-trigger-btn');
 const cmdInput = document.getElementById('cmd-input');
 const cmdResultsList = document.getElementById('cmd-results-list');
+const cmdEmptyState = document.getElementById('cmd-empty-state');
 
 // Reader DOM
 const readerOverlay = document.getElementById('reader-overlay');
@@ -331,43 +361,138 @@ const readerBlocked = document.getElementById('reader-blocked');
 const readerBlockedExternalBtn = document.getElementById('reader-blocked-external-btn');
 const readerAltChips = document.getElementById('reader-alt-chips');
 
+// The reader, the detail modal and the command palette each used to set and
+// clear `body.style.overflow` independently, so closing one while another was
+// still open re-enabled scrolling behind a visible overlay. A stack makes the
+// lock owned by "is anything open" rather than by any single overlay.
+const openOverlays = new Set();
+let bodyScrollLocked = false;
+
+function syncBodyScrollLock() {
+  const shouldLock = openOverlays.size > 0;
+  if (shouldLock === bodyScrollLocked) return;
+  bodyScrollLocked = shouldLock;
+  document.body.style.overflow = shouldLock ? 'hidden' : '';
+}
+
+function pushOverlay(name) {
+  openOverlays.add(name);
+  syncBodyScrollLock();
+}
+
+function popOverlay(name) {
+  openOverlays.delete(name);
+  syncBodyScrollLock();
+}
+
 // Translate buttons aren't in the static HTML — they're created once on first
 // use and reused after that (see openReader).
 let readerTranslateBtn = document.getElementById('reader-translate-btn');
 let readerBlockedTranslateBtn = document.getElementById('reader-blocked-translate-btn');
 
 // ── Bookmarks / Library Manager ────────────────────────────────────────────
-function getLibraryBookmarks() {
-  try {
-    return JSON.parse(localStorage.getItem('kindoku_library') || '[]');
-  } catch {
-    return [];
+// `isBookmarked` runs once per card on every render. Without a cache that meant
+// re-parsing the entire localStorage array dozens of times to draw one screen of
+// results. `saveLibraryBookmarks` drops the cache, so it cannot go stale.
+let libraryCache = null;
+
+function normalizeTitle(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+// A stored bookmark, or null if the record is unusable. Library data comes from
+// localStorage *and* from user-supplied JSON files, so every record has to be
+// shape-checked before it can touch `title.toLowerCase()`.
+function normalizeBookmark(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+  const title = typeof record.title === 'string' ? record.title.trim() : '';
+  if (!title) return null;
+  return {
+    ...record,
+    title,
+    type: typeof record.type === 'string' && record.type ? record.type : 'Manga',
+    genre: Array.isArray(record.genre)
+      ? record.genre.filter(g => typeof g === 'string')
+      : [],
+    synopsis: typeof record.synopsis === 'string' ? record.synopsis : '',
+    status: typeof record.status === 'string' && record.status ? record.status : 'Ongoing',
+    rating: typeof record.rating === 'string' || typeof record.rating === 'number'
+      ? String(record.rating)
+      : '',
+    savedAt: Number.isFinite(record.savedAt) ? record.savedAt : Date.now(),
+  };
+}
+
+// Imports win over existing entries (they carry the user's newest metadata),
+// first occurrence of a given title wins, and the result is capped so a
+// pathological file can't grow localStorage without bound.
+function mergeLibraryBookmarks(imported, current, limit = 500) {
+  const seen = new Set();
+  const merged = [];
+  for (const record of [...toArray(imported), ...toArray(current)]) {
+    const bookmark = normalizeBookmark(record);
+    if (!bookmark) continue;
+    const key = normalizeTitle(bookmark.title);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(bookmark);
+    if (merged.length >= limit) break;
   }
+  return merged;
+}
+
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function getLibraryBookmarks() {
+  if (libraryCache) return libraryCache;
+  try {
+    const parsed = JSON.parse(localStorage.getItem('kindoku_library') || '[]');
+    libraryCache = Array.isArray(parsed)
+      ? parsed.map(normalizeBookmark).filter(Boolean)
+      : [];
+  } catch {
+    // A previously-stored but malformed entry (from an older buggy import)
+    // must not crash every render.
+    libraryCache = [];
+  }
+  return libraryCache;
+}
+
+function invalidateLibraryCache() {
+  libraryCache = null;
 }
 
 function saveLibraryBookmarks(items) {
-  localStorage.setItem('kindoku_library', JSON.stringify(items));
+  localStorage.setItem('kindoku_library', JSON.stringify(toArray(items)));
+  invalidateLibraryCache();
   updateLibraryBadge();
 }
 
 function isBookmarked(title) {
-  const list = getLibraryBookmarks();
-  return list.some(item => item.title.toLowerCase() === title.toLowerCase());
+  const key = normalizeTitle(title);
+  if (!key) return false;
+  return getLibraryBookmarks().some(item => normalizeTitle(item.title) === key);
 }
 
 function toggleBookmark(rec) {
-  let list = getLibraryBookmarks();
-  const exists = list.some(item => item.title.toLowerCase() === rec.title.toLowerCase());
-  if (exists) {
-    list = list.filter(item => item.title.toLowerCase() !== rec.title.toLowerCase());
-    saveLibraryBookmarks(list);
-    showToast(`Removed "${rec.title}" from Library`, '🗑️');
-  } else {
-    list.unshift({ ...rec, savedAt: Date.now() });
-    saveLibraryBookmarks(list);
-    showToast(`Saved "${rec.title}" to Library!`, '🔖');
+  const bookmark = normalizeBookmark(rec);
+  if (!bookmark) {
+    showToast('Could not save this title — it has no title.', '⚠');
+    return;
   }
-  updateBookmarkButtons(rec.title);
+  const key = normalizeTitle(bookmark.title);
+  const list = getLibraryBookmarks();
+  const exists = list.some(item => normalizeTitle(item.title) === key);
+  if (exists) {
+    saveLibraryBookmarks(list.filter(item => normalizeTitle(item.title) !== key));
+    showToast(`Removed "${bookmark.title}" from Library`, '🗑️');
+  } else {
+    saveLibraryBookmarks([{ ...bookmark, savedAt: Date.now() }, ...list]);
+    showToast(`Saved "${bookmark.title}" to Library!`, '🔖');
+  }
+  updateBookmarkButtons(bookmark.title);
   if (currentView === 'library') renderLibrary();
 }
 
@@ -379,38 +504,46 @@ function updateLibraryBadge() {
   const countManhwa = document.getElementById('lib-count-manhwa');
   const countManhua = document.getElementById('lib-count-manhua');
   const countLn = document.getElementById('lib-count-ln');
+  const typeOf = item => String(item.type || '').toLowerCase();
 
   if (countAll) countAll.textContent = list.length;
-  if (countManga) countManga.textContent = list.filter(i => (i.type || '').toLowerCase() === 'manga').length;
-  if (countManhwa) countManhwa.textContent = list.filter(i => (i.type || '').toLowerCase() === 'manhwa').length;
-  if (countManhua) countManhua.textContent = list.filter(i => (i.type || '').toLowerCase() === 'manhua').length;
-  if (countLn) countLn.textContent = list.filter(i => (i.type || '').toLowerCase().includes('novel')).length;
+  if (countManga) countManga.textContent = list.filter(i => typeOf(i) === 'manga').length;
+  if (countManhwa) countManhwa.textContent = list.filter(i => typeOf(i) === 'manhwa').length;
+  if (countManhua) countManhua.textContent = list.filter(i => typeOf(i) === 'manhua').length;
+  if (countLn) countLn.textContent = list.filter(i => typeOf(i).includes('novel')).length;
 }
 
 function updateBookmarkButtons(title) {
   const saved = isBookmarked(title);
   document.querySelectorAll(`.card-bookmark-btn[data-title="${encodeURIComponent(title)}"]`).forEach(btn => {
     btn.classList.toggle('saved', saved);
+    btn.title = saved ? 'Remove from Library' : 'Save to Library';
+    btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
     btn.innerHTML = saved
-      ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>`
-      : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>`;
+      ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>`
+      : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>`;
   });
 }
 
 // ── Search History Manager ─────────────────────────────────────────────────
 function getSearchHistory() {
   try {
-    return JSON.parse(localStorage.getItem('kindoku_history') || '[]');
+    const parsed = JSON.parse(localStorage.getItem('kindoku_history') || '[]');
+    return Array.isArray(parsed) ? parsed.filter(q => typeof q === 'string' && q.trim()) : [];
   } catch {
     return [];
   }
 }
 
+// Newest first, case-insensitively de-duplicated, capped.
 function addSearchHistory(query) {
-  if (!query || query.length < 2) return;
-  let history = getSearchHistory().filter(q => q.toLowerCase() !== query.toLowerCase());
-  history.unshift(query);
-  history = history.slice(0, 10);
+  const entry = typeof query === 'string' ? query.trim() : '';
+  if (entry.length < 2) return;
+  const key = normalizeTitle(entry);
+  const history = [
+    entry,
+    ...getSearchHistory().filter(q => normalizeTitle(q) !== key),
+  ].slice(0, 10);
   localStorage.setItem('kindoku_history', JSON.stringify(history));
   renderSearchHistory();
 }
@@ -424,7 +557,7 @@ function renderSearchHistory() {
   }
   recentSearchesBox.style.display = 'block';
   recentChips.innerHTML = history
-    .map(q => `<button class="recent-chip" data-search="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+    .map(q => `<button type="button" class="recent-chip" data-search="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
     .join('');
 
   recentChips.querySelectorAll('.recent-chip').forEach(btn => {
@@ -468,7 +601,12 @@ function switchView(targetName) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   if (targetName === 'search' && searchInput) {
-    setTimeout(() => searchInput.focus(), 400);
+    // Deferred so the view's enter animation has settled. Guarded because the
+    // user can navigate away inside that window, and focusing an input in a
+    // hidden view scrolls the page back to it.
+    setTimeout(() => {
+      if (currentView === 'search') searchInput.focus();
+    }, 400);
     renderSearchHistory();
   }
 
@@ -502,17 +640,26 @@ document.getElementById('btn-hero-search')?.addEventListener('click', () => swit
 document.getElementById('btn-hero-random')?.addEventListener('click', () => triggerRandomDiscover());
 
 // ── Build Discover Matrix (Genres, Tags, Formats) ──────────────────────────
+// The tag list currently rendered. Presets and "Randomize" rebuild the grid from
+// the full list, which silently discarded whatever the user had typed into the
+// filter box (the box kept its text, the grid stopped matching it).
+let visibleTags = TAGS.slice();
+
 function initDiscoverMatrix() {
   // Build Genre Grid
   if (genreGrid) {
     genreGrid.innerHTML = '';
     GENRES.forEach(g => {
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.className = 'genre-btn';
-      btn.innerHTML = `<span class="genre-icon">${g.icon}</span><span class="genre-label">${g.label}</span>`;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = `<span class="genre-icon" aria-hidden="true">${escapeHtml(g.icon)}</span><span class="genre-label">${escapeHtml(g.label)}</span>`;
       btn.addEventListener('click', () => {
-        btn.classList.toggle('active');
-        selectedGenres.has(g.label) ? selectedGenres.delete(g.label) : selectedGenres.add(g.label);
+        const nowSelected = !selectedGenres.has(g.label);
+        selectedGenres[nowSelected ? 'add' : 'delete'](g.label);
+        btn.classList.toggle('active', nowSelected);
+        btn.setAttribute('aria-pressed', nowSelected ? 'true' : 'false');
         updateMatrixCounters();
       });
       genreGrid.appendChild(btn);
@@ -520,33 +667,32 @@ function initDiscoverMatrix() {
   }
 
   // Build Tags Grid
-  renderTagsGrid(TAGS);
+  renderTagsGrid();
 
   // Tag filter search
   if (tagFilterInput) {
     tagFilterInput.addEventListener('input', (e) => {
       const query = e.target.value.toLowerCase().trim();
-      const filtered = TAGS.filter(t => t.toLowerCase().includes(query));
-      renderTagsGrid(filtered);
+      visibleTags = TAGS.filter(t => t.toLowerCase().includes(query));
+      renderTagsGrid();
     });
   }
 
   // Format Cards
   formatCards.forEach(card => {
     card.addEventListener('click', () => {
-      card.classList.toggle('active');
       const fmt = card.dataset.format;
-      selectedFormats.has(fmt) ? selectedFormats.delete(fmt) : selectedFormats.add(fmt);
+      const nowSelected = !selectedFormats.has(fmt);
+      selectedFormats[nowSelected ? 'add' : 'delete'](fmt);
+      card.classList.toggle('active', nowSelected);
+      card.setAttribute('aria-pressed', nowSelected ? 'true' : 'false');
       updateMatrixCounters();
     });
   });
 
   // Presets
   document.querySelectorAll('.preset-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const presetKey = card.dataset.preset;
-      applyPreset(presetKey);
-    });
+    card.addEventListener('click', () => applyPreset(card.dataset.preset));
   });
 
   // Reset & Randomize Discover Matrix
@@ -554,19 +700,52 @@ function initDiscoverMatrix() {
   document.getElementById('discover-preset-random-btn')?.addEventListener('click', randomizeDiscoverMatrix);
 }
 
-function renderTagsGrid(tagList) {
+// Re-renders `visibleTags`, preserving selection state.
+function renderTagsGrid() {
   if (!tagsGrid) return;
   tagsGrid.innerHTML = '';
-  tagList.forEach(tag => {
+  visibleTags.forEach(tag => {
     const btn = document.createElement('button');
-    btn.className = `tag-btn ${selectedTags.has(tag) ? 'active' : ''}`;
+    btn.type = 'button';
+    btn.className = 'tag-btn';
     btn.textContent = tag;
+    const selected = selectedTags.has(tag);
+    btn.classList.toggle('active', selected);
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      btn.classList.toggle('active');
-      selectedTags.has(tag) ? selectedTags.delete(tag) : selectedTags.add(tag);
+      const nowSelected = !selectedTags.has(tag);
+      selectedTags[nowSelected ? 'add' : 'delete'](tag);
+      btn.classList.toggle('active', nowSelected);
+      btn.setAttribute('aria-pressed', nowSelected ? 'true' : 'false');
     });
     tagsGrid.appendChild(btn);
   });
+}
+
+// `Array#sort(() => 0.5 - Math.random())` is not a shuffle — it is biased and
+// can leave adjacent items in place. Fisher–Yates actually randomises.
+function shuffled(list) {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function syncDiscoverUiFromState() {
+  document.querySelectorAll('.genre-btn').forEach(btn => {
+    const label = btn.querySelector('.genre-label')?.textContent;
+    const selected = selectedGenres.has(label);
+    btn.classList.toggle('active', selected);
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+  document.querySelectorAll('.format-card').forEach(card => {
+    const selected = selectedFormats.has(card.dataset.format);
+    card.classList.toggle('active', selected);
+    card.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+  updateMatrixCounters();
 }
 
 function updateMatrixCounters() {
@@ -580,83 +759,62 @@ function updateMatrixCounters() {
   }
 }
 
-function resetDiscoverMatrix() {
+function resetDiscoverMatrix({ silent = false } = {}) {
   selectedGenres.clear();
   selectedTags.clear();
   selectedFormats.clear();
   if (customInput) customInput.value = '';
-  document.querySelectorAll('.genre-btn.active, .tag-btn.active, .format-card.active, .preset-card.active').forEach(el => {
-    el.classList.remove('active');
-  });
-  updateMatrixCounters();
-  showToast('Discovery matrix reset', '🔄');
+  if (tagFilterInput) tagFilterInput.value = '';
+  visibleTags = TAGS.slice();
+  document.querySelectorAll('.preset-card.active').forEach(el => el.classList.remove('active'));
+  renderTagsGrid();
+  syncDiscoverUiFromState();
+  if (!silent) showToast('Discovery matrix reset', '🔄');
 }
 
 function applyPreset(presetKey) {
   const p = PRESETS[presetKey];
   if (!p) return;
 
-  resetDiscoverMatrix();
+  // Silent: the preset's own toast is the only one the user should see.
+  resetDiscoverMatrix({ silent: true });
 
   // Highlight active preset card
   document.querySelectorAll('.preset-card').forEach(c => {
     c.classList.toggle('active', c.dataset.preset === presetKey);
   });
 
-  // Formats
-  p.formats.forEach(fmt => {
-    selectedFormats.add(fmt);
-    document.querySelector(`.format-card[data-format="${fmt}"]`)?.classList.add('active');
-  });
-
-  // Genres
-  p.genres.forEach(g => {
-    selectedGenres.add(g);
-    document.querySelectorAll('.genre-btn').forEach(btn => {
-      if (btn.querySelector('.genre-label')?.textContent === g) btn.classList.add('active');
-    });
-  });
-
-  // Tags
-  p.tags.forEach(t => {
-    selectedTags.add(t);
-  });
-  renderTagsGrid(TAGS);
+  p.formats.forEach(fmt => selectedFormats.add(fmt));
+  p.genres.forEach(g => selectedGenres.add(g));
+  p.tags.forEach(t => selectedTags.add(t));
 
   // Prompt
   if (customInput) customInput.value = p.prompt;
 
-  updateMatrixCounters();
-  showToast(`Loaded "${p.prompt.slice(0, 30)}..." preset`, '⚡');
+  renderTagsGrid();
+  syncDiscoverUiFromState();
+
+  const label = p.prompt.length > 30 ? `${p.prompt.slice(0, 30)}…` : p.prompt;
+  showToast(`Loaded "${label}" preset`, '⚡');
 }
 
 function randomizeDiscoverMatrix() {
-  resetDiscoverMatrix();
+  resetDiscoverMatrix({ silent: true });
 
   // Pick 1-2 random formats
   const allFormats = ['Manga', 'Manhwa', 'Manhua', 'Light Novel'];
-  const numFormats = Math.floor(Math.random() * 2) + 1;
-  const pickedFormats = [...allFormats].sort(() => 0.5 - Math.random()).slice(0, numFormats);
-  pickedFormats.forEach(fmt => {
-    selectedFormats.add(fmt);
-    document.querySelector(`.format-card[data-format="${fmt}"]`)?.classList.add('active');
-  });
+  shuffled(allFormats).slice(0, Math.floor(Math.random() * 2) + 1)
+    .forEach(fmt => selectedFormats.add(fmt));
 
   // Pick 2 random genres
-  const pickedGenres = [...GENRES].sort(() => 0.5 - Math.random()).slice(0, 2);
-  pickedGenres.forEach(g => {
-    selectedGenres.add(g.label);
-    document.querySelectorAll('.genre-btn').forEach(btn => {
-      if (btn.querySelector('.genre-label')?.textContent === g.label) btn.classList.add('active');
-    });
-  });
+  shuffled(GENRES).slice(0, 2).forEach(g => selectedGenres.add(g.label));
 
   // Pick 3 random tags
-  const pickedTags = [...TAGS].sort(() => 0.5 - Math.random()).slice(0, 3);
-  pickedTags.forEach(t => selectedTags.add(t));
-  renderTagsGrid(TAGS);
+  shuffled(TAGS).slice(0, 3).forEach(t => selectedTags.add(t));
 
-  updateMatrixCounters();
+  renderTagsGrid();
+  syncDiscoverUiFromState();
+
   showToast('Randomized taste matrix! Roll again or unleash recommendations.', '🎲');
 }
 
@@ -694,12 +852,14 @@ document.querySelectorAll('.showcase-card').forEach(card => {
 });
 
 // ── Search Mode Switcher ───────────────────────────────────────────────────
+function selectSearchMode(mode) {
+  if (!['all', 'exact', 'similar'].includes(mode)) return;
+  searchMode = mode;
+  searchModeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+}
+
 searchModeTabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    searchModeTabs.forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    searchMode = tab.dataset.mode;
-  });
+  tab.addEventListener('click', () => selectSearchMode(tab.dataset.mode));
 });
 
 // Search input clears & triggers
@@ -729,6 +889,56 @@ document.querySelectorAll('.suggestion-chip').forEach(chip => {
 });
 
 // ── Search & Discover Submission ───────────────────────────────────────────
+// Two requests could be in flight at once (fast double-tap, a search started
+// right after a discover). Whichever response landed *last* won, so a slow
+// first query could overwrite the results of the newer one. Every submission
+// now aborts the previous request and carries a sequence number that
+// `isCurrentRequest` checks before touching the DOM.
+let requestSequence = 0;
+let activeController = null;
+
+function beginRequest() {
+  if (activeController) activeController.abort();
+  activeController = new AbortController();
+  const sequence = ++requestSequence;
+  return {
+    sequence,
+    signal: activeController.signal,
+    isCurrent: () => sequence === requestSequence,
+  };
+}
+
+function isAbortError(err) {
+  return Boolean(err) && (err.name === 'AbortError' || err.code === 20);
+}
+
+// POSTs to the recommendation endpoint and normalises transport, HTTP and
+// payload errors into a single thrown Error.
+async function requestRecommendations(payload, request) {
+  const res = await fetch('./api/recommend', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: request.signal,
+  });
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'The server sent a malformed response.'
+        : `Request failed (HTTP ${res.status}).`
+    );
+  }
+
+  if (!res.ok || !Array.isArray(data?.recommendations)) {
+    throw new Error(data?.error || `Request failed (HTTP ${res.status}).`);
+  }
+  return data;
+}
+
 async function submitSearch(overrideQuery = null) {
   const query = overrideQuery || (searchInput ? searchInput.value.trim() : '');
   if (!query) {
@@ -740,22 +950,23 @@ async function submitSearch(overrideQuery = null) {
   setInlineMessage(searchInlineMsg, '');
   addSearchHistory(query);
 
-  previousView = 'search';
+  const request = beginRequest();
   currentQuery = { mode: 'search', searchInput: query, searchMode, genres: [], tags: [], formats: [], customInput: '' };
   allRecommendations = [];
   filteredRecommendations = [];
+  currentPage = 1;
 
   prepResultsView([query]);
 
   try {
-    const res = await fetch('./api/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'search', searchInput: query }),
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.recommendations) throw new Error(data.error || 'Unable to retrieve recommendations.');
+    // The mode tabs were purely cosmetic: `searchMode` was captured into
+    // `currentQuery` and never sent, so "Exact Title" and "Similar To..." both
+    // behaved identically. The server now honours the explicit choice.
+    const data = await requestRecommendations(
+      { mode: 'search', searchInput: query, searchMode },
+      request
+    );
+    if (!request.isCurrent()) return;
 
     if (!data.recommendations.length) {
       showEmptyResults(`No titles matched "${query}". Try searching for another keyword.`);
@@ -765,9 +976,10 @@ async function submitSearch(overrideQuery = null) {
     allRecommendations = data.recommendations;
     applyResultsFilterAndSort();
   } catch (err) {
+    if (isAbortError(err) || !request.isCurrent()) return;
     showErrorResults(err.message || 'Network error occurred while contacting recommendation server.');
   } finally {
-    if (loadingEl) loadingEl.style.display = 'none';
+    if (request.isCurrent() && loadingEl) loadingEl.style.display = 'none';
   }
 }
 
@@ -790,23 +1002,22 @@ async function submitDiscover() {
   }
 
   setInlineMessage(discoverInlineMsg, '');
-  previousView = 'discover';
+  const request = beginRequest();
   currentQuery = { mode: 'discover', genres, tags, formats, customInput: custom, searchInput: '' };
   allRecommendations = [];
   filteredRecommendations = [];
+  currentPage = 1;
+  loadMoreExhausted = false;
 
   const queryParts = [...formats, ...genres, ...tags, custom].filter(Boolean);
   prepResultsView(queryParts);
 
   try {
-    const res = await fetch('./api/recommend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'discover', genres, tags, formats, customInput: custom, exclude: [] }),
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.recommendations) throw new Error(data.error || 'Unable to retrieve recommendations.');
+    const data = await requestRecommendations(
+      { mode: 'discover', genres, tags, formats, customInput: custom, exclude: [], page: 1 },
+      request
+    );
+    if (!request.isCurrent()) return;
 
     if (!data.recommendations.length) {
       showEmptyResults('No titles matched this specific criteria mix. Try adjusting or expanding tags.');
@@ -816,17 +1027,28 @@ async function submitDiscover() {
     allRecommendations = data.recommendations;
     applyResultsFilterAndSort();
   } catch (err) {
+    if (isAbortError(err) || !request.isCurrent()) return;
     showErrorResults(err.message || 'Network error occurred while contacting recommendation server.');
   } finally {
-    if (loadingEl) loadingEl.style.display = 'none';
+    if (request.isCurrent() && loadingEl) loadingEl.style.display = 'none';
   }
 }
 
 function prepResultsView(queryParts) {
   if (resultsContent) resultsContent.style.display = 'none';
   if (resultsEmpty) resultsEmpty.hidden = true;
-  if (errorMsg) errorMsg.style.display = 'none';
+  if (errorMsg) {
+    errorMsg.style.display = 'none';
+    errorMsg.innerHTML = '';
+  }
   if (loadingEl) loadingEl.style.display = 'block';
+
+  // A stale in-results filter from the previous query would hide the whole
+  // new result set behind an empty state.
+  if (resultsFilterInput) resultsFilterInput.value = '';
+  if (loadMoreBtn) loadMoreBtn.disabled = false;
+  if (loadMoreText) loadMoreText.textContent = 'Discover 10 More';
+  loadMoreExhausted = false;
 
   if (resultsQueryTags) {
     resultsQueryTags.innerHTML = queryParts.map(q => `<span class="query-tag">${escapeHtml(q)}</span>`).join('');
@@ -861,26 +1083,54 @@ function showErrorResults(msg) {
 }
 
 // ── Results Filtering, Sorting & Rendering ─────────────────────────────────
+// Ratings arrive as strings ("8.4") from AniList and as numbers from the model,
+// so the sort has to coerce rather than subtract directly.
+function ratingValue(rec) {
+  const value = parseFloat(rec?.rating);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function compareRecommendations(a, b, sort) {
+  if (sort === 'rating') {
+    const delta = ratingValue(b) - ratingValue(a);
+    // Stable tiebreak so equal ratings don't reshuffle on every re-render.
+    return delta !== 0 ? delta : String(a.title || '').localeCompare(b.title || '');
+  }
+  if (sort === 'title') {
+    return String(a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+  }
+  if (sort === 'type') {
+    const delta = String(a.type || '').localeCompare(b.type || '');
+    return delta !== 0 ? delta : String(a.title || '').localeCompare(b.title || '');
+  }
+  return 0;
+}
+
+function matchesResultsFilter(rec, filterText) {
+  if (!rec) return false;
+  if (!filterText) return true;
+  const needle = String(filterText).toLowerCase();
+  return (
+    String(rec.title || '').toLowerCase().includes(needle) ||
+    toArray(rec.genre).some(g => String(g).toLowerCase().includes(needle)) ||
+    String(rec.synopsis || '').toLowerCase().includes(needle) ||
+    String(rec.type || '').toLowerCase().includes(needle)
+  );
+}
+
 function applyResultsFilterAndSort() {
   const filterText = resultsFilterInput ? resultsFilterInput.value.toLowerCase().trim() : '';
 
   // Filter in-memory results
-  filteredRecommendations = allRecommendations.filter(r => {
-    if (!filterText) return true;
-    const matchesTitle = (r.title || '').toLowerCase().includes(filterText);
-    const matchesGenre = (r.genre || []).some(g => g.toLowerCase().includes(filterText));
-    const matchesSynopsis = (r.synopsis || '').toLowerCase().includes(filterText);
-    const matchesType = (r.type || '').toLowerCase().includes(filterText);
-    return matchesTitle || matchesGenre || matchesSynopsis || matchesType;
-  });
+  filteredRecommendations = allRecommendations.filter(rec =>
+    matchesResultsFilter(rec, filterText)
+  );
 
-  // Sort
-  if (currentSort === 'rating') {
-    filteredRecommendations.sort((a, b) => (parseFloat(b.rating) || 0) - (parseFloat(a.rating) || 0));
-  } else if (currentSort === 'title') {
-    filteredRecommendations.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  } else if (currentSort === 'type') {
-    filteredRecommendations.sort((a, b) => (a.type || '').localeCompare(b.type || ''));
+  if (currentSort !== 'default') {
+    // `toSorted`/spread-then-sort keeps `allRecommendations` in server order.
+    filteredRecommendations = filteredRecommendations
+      .slice()
+      .sort((a, b) => compareRecommendations(a, b, currentSort));
   }
 
   renderResultsCards();
@@ -909,6 +1159,13 @@ viewModeBtns.forEach(btn => {
   });
 });
 
+// Creates and appends a card, skipping records that cannot be rendered.
+function appendCard(grid, rec) {
+  if (!grid) return;
+  const card = createCardElement(rec);
+  if (card) grid.appendChild(card);
+}
+
 function renderResultsCards() {
   if (!cardsGrid) return;
   cardsGrid.innerHTML = '';
@@ -928,36 +1185,44 @@ function renderResultsCards() {
     return;
   }
 
-  filteredRecommendations.forEach(r => {
-    cardsGrid.appendChild(createCardElement(r));
-  });
+  filteredRecommendations.forEach(r => appendCard(cardsGrid, r));
 
   if (resultsContent) resultsContent.style.display = 'block';
   if (loadMoreWrapper) {
-    loadMoreWrapper.style.display = currentQuery.mode === 'discover' ? 'block' : 'none';
+    const canLoadMore = currentQuery.mode === 'discover' && !loadMoreExhausted;
+    loadMoreWrapper.style.display = canLoadMore ? 'block' : 'none';
+    // The in-results filter can hide everything the user has; offering
+    // "load more" on top of an empty grid is just noise.
+    if (canLoadMore && resultsFilterInput?.value.trim()) {
+      loadMoreWrapper.style.display = 'none';
+    }
   }
 }
 
 // ── Card Builder Component ─────────────────────────────────────────────────
-function createCardElement(r, isLibraryCard = false) {
-  const typeLower = (r.type || 'Manga').toLowerCase();
+function createCardElement(r) {
+  if (!r || typeof r.title !== 'string' || !r.title.trim()) return null;
+  const rec = normalizeBookmark(r);
+  const typeLower = (rec.type || 'Manga').toLowerCase();
   let badgeClass = 'badge-manga';
   if (typeLower === 'manhwa') badgeClass = 'badge-manhwa';
   else if (typeLower === 'manhua') badgeClass = 'badge-manhua';
   else if (typeLower.includes('novel')) badgeClass = 'badge-ln';
 
-  const isCompleted = (r.status || '').toLowerCase() === 'completed';
-  const saved = isBookmarked(r.title);
+  const isCompleted = String(rec.status || '').toLowerCase() === 'completed';
+  const saved = isBookmarked(rec.title);
 
-  const card = document.createElement('div');
+  const card = document.createElement('article');
   card.className = 'card';
 
   // Cover markup
-  const coverMarkup = r.coverImage
-    ? `<img src="${escapeHtml(r.coverImage)}" alt="${escapeHtml(r.title)}" class="card-cover-img" loading="lazy" />`
+  const coverMarkup = rec.coverImage
+    ? `<img src="${escapeHtml(rec.coverImage)}" alt="${escapeHtml(rec.title)}" class="card-cover-img" loading="lazy" decoding="async" />`
     : `<div class="card-cover-placeholder"><span class="placeholder-symbol">読</span></div>`;
 
-  const genresMarkup = (r.genre || []).slice(0, 3)
+  // The API returns AniList's full canonical genre list; the card only has room
+  // for three, but the detail modal shows all of them.
+  const genresMarkup = toArray(rec.genre).slice(0, 3)
     .map(g => `<span class="genre-tag-sm">${escapeHtml(g)}</span>`)
     .join('');
 
@@ -967,32 +1232,32 @@ function createCardElement(r, isLibraryCard = false) {
       <div class="card-cover-overlay"></div>
       <div class="card-cover-top-actions">
         <div class="card-badges-row">
-          <span class="card-badge ${badgeClass}">${escapeHtml(r.type || 'Manga')}</span>
-          <span class="card-badge badge-status ${isCompleted ? 'completed' : ''}">${escapeHtml(r.status || 'Ongoing')}</span>
+          <span class="card-badge ${badgeClass}">${escapeHtml(rec.type || 'Manga')}</span>
+          <span class="card-badge badge-status ${isCompleted ? 'completed' : ''}">${escapeHtml(rec.status || 'Ongoing')}</span>
         </div>
-        <button class="card-bookmark-btn ${saved ? 'saved' : ''}" data-title="${encodeURIComponent(r.title)}" title="${saved ? 'Remove from Library' : 'Save to Library'}">
-          ${saved ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>' : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>'}
+        <button type="button" class="card-bookmark-btn ${saved ? 'saved' : ''}" data-title="${encodeURIComponent(rec.title)}" title="${saved ? 'Remove from Library' : 'Save to Library'}" aria-label="${saved ? 'Remove from Library' : 'Save to Library'}" aria-pressed="${saved}">
+          ${saved ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>' : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>'}
         </button>
       </div>
     </div>
 
     <div class="card-body">
       <div class="card-title-row">
-        <h3 class="card-title" data-action="detail">${escapeHtml(r.title)}</h3>
-        ${r.rating ? `<span class="card-rating-chip">★ ${escapeHtml(r.rating)}</span>` : ''}
+        <h3 class="card-title" data-action="detail">${escapeHtml(rec.title)}</h3>
+        ${rec.rating ? `<span class="card-rating-chip">★ ${escapeHtml(rec.rating)}</span>` : ''}
       </div>
 
       <div class="card-genres">${genresMarkup}</div>
-      <p class="card-synopsis">${escapeHtml(r.synopsis || 'No synopsis provided.')}</p>
+      <p class="card-synopsis">${escapeHtml(rec.synopsis || 'No synopsis provided.')}</p>
     </div>
 
     <div class="card-footer">
-      <button class="card-read-btn" data-action="read">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      <button type="button" class="card-read-btn" data-action="read">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
         <span>Read Now</span>
       </button>
-      <button class="card-similar-btn" data-action="similar" title="Find titles similar to this">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <button type="button" class="card-similar-btn" data-action="similar" title="Find titles similar to this" aria-label="Find titles similar to ${escapeHtml(rec.title)}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
     </div>
   `;
@@ -1000,22 +1265,25 @@ function createCardElement(r, isLibraryCard = false) {
   // Attach Event Listeners
   card.querySelector('.card-bookmark-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    toggleBookmark(r);
+    toggleBookmark(rec);
   });
 
   card.querySelectorAll('[data-action="detail"]').forEach(el => {
-    el.addEventListener('click', () => openDetailModal(r));
+    el.addEventListener('click', () => openDetailModal(rec));
   });
 
   card.querySelector('[data-action="read"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    handleReadAction(r);
+    handleReadAction(rec);
   });
 
   card.querySelector('[data-action="similar"]')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (searchInput) searchInput.value = `something like ${r.title}`;
-    submitSearch(`something like ${r.title}`);
+    const similarQuery = `something like ${rec.title}`;
+    if (searchInput) searchInput.value = similarQuery;
+    // Switching the tab too, so the UI agrees with what is actually requested.
+    selectSearchMode('similar');
+    submitSearch(similarQuery);
   });
 
   return card;
@@ -1032,14 +1300,22 @@ function toTranslatedUrl(url) {
 }
 
 function handleReadAction(rec) {
+  if (!rec) return;
+  const title = String(rec.title || '').trim();
+  // `readUrl` is always populated by the API — when AniList has no direct
+  // reading link it is a Google `site:` search. `isDirectLink` is the only
+  // reliable signal that the URL is an actual reader page, and it is what
+  // decides between the in-app iframe and a normal tab.
   if (rec.isDirectLink && rec.readUrl) {
-    openReader(rec.readUrl, rec.title, rec.type);
-  } else if (rec.readUrl) {
-    window.open(rec.readUrl, '_blank', 'noopener,noreferrer');
-    showToast('Tip: use the Translate to English button if the page loads in another language', '🌐');
+    openReader(rec.readUrl, title, rec.type);
+    return;
+  }
+  const target = rec.readUrl || `https://www.google.com/search?q=read+${encodeURIComponent(title)}`;
+  window.open(target, '_blank', 'noopener,noreferrer');
+  if (!rec.readUrl) {
+    showToast(`No direct reader found for "${title}" — opened a web search.`, '🔍');
   } else {
-    const fallbackUrl = `https://www.google.com/search?q=read+${encodeURIComponent(rec.title)}`;
-    window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+    showToast('Tip: use the Translate to English button if the page loads in another language', '🌐');
   }
 }
 
@@ -1048,9 +1324,47 @@ const READER_MAX_WAIT_MS = 5500;
 let readerResolved = false;
 let readerWaitTimer = null;
 let readerLoadStart = 0;
+let currentReaderUrl = '';
+
+// Keeps the iframe in the layout and merely hides it. `display: none` iframes
+// are not guaranteed to run their load event in every engine, and that event is
+// exactly what the blocked-vs-loaded heuristic below depends on.
+function setReaderIframeVisible(visible) {
+  if (!readerIframe) return;
+  readerIframe.style.display = 'block';
+  readerIframe.style.visibility = visible ? 'visible' : 'hidden';
+}
+
+// `navigator.clipboard` is undefined outside a secure context (plain http://
+// LAN testing, some in-app webviews). Fall back to a hidden textarea.
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy path.
+    }
+  }
+  try {
+    const scratch = document.createElement('textarea');
+    scratch.value = text;
+    scratch.setAttribute('readonly', '');
+    scratch.style.position = 'fixed';
+    scratch.style.opacity = '0';
+    document.body.appendChild(scratch);
+    scratch.select();
+    const ok = document.execCommand('copy');
+    scratch.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 function openReader(url, title, type = 'Manga') {
-  if (!readerOverlay) return;
+  if (!readerOverlay || !url) return;
+  currentReaderUrl = url;
   if (readerTitle) readerTitle.textContent = `${title} (${type})`;
   if (readerExternalBtn) readerExternalBtn.href = url;
   if (readerBlockedExternalBtn) readerBlockedExternalBtn.href = url;
@@ -1089,24 +1403,27 @@ function openReader(url, title, type = 'Manga') {
     };
   }
 
-  // Populate alternative search chips
+  // Populate alternative search chips. `q` is percent-encoded, which is safe to
+  // place inside a double-quoted attribute; `escapeHtml` is applied on top so
+  // the value is correct under any quoting.
   if (readerAltChips) {
-    const q = encodeURIComponent(title);
+    const q = escapeHtml(encodeURIComponent(title));
     readerAltChips.innerHTML = `
-      <a class="alt-source-btn" href="https://www.google.com/search?q=site:mangabuddy.com+${q}" target="_blank" rel="noopener">MangaBuddy</a>
-      <a class="alt-source-btn" href="https://mangadex.org/search?q=${q}" target="_blank" rel="noopener">MangaDex</a>
-      <a class="alt-source-btn" href="https://www.webtoons.com/en/search?keyword=${q}" target="_blank" rel="noopener">Webtoon</a>
-      <a class="alt-source-btn" href="https://freewebnovel.com/search?searchkey=${q}" target="_blank" rel="noopener">FreeWebNovel</a>
-      <a class="alt-source-btn" href="https://www.google.com/search?q=read+${q}" target="_blank" rel="noopener">Google</a>
+      <a class="alt-source-btn" href="https://www.google.com/search?q=site:mangabuddy.com+${q}" target="_blank" rel="noopener noreferrer">MangaBuddy</a>
+      <a class="alt-source-btn" href="https://mangadex.org/search?keyword=${q}" target="_blank" rel="noopener noreferrer">MangaDex</a>
+      <a class="alt-source-btn" href="https://www.webtoons.com/en/search?keyword=${q}" target="_blank" rel="noopener noreferrer">Webtoon</a>
+      <a class="alt-source-btn" href="https://freewebnovel.com/search?searchkey=${q}" target="_blank" rel="noopener noreferrer">FreeWebNovel</a>
+      <a class="alt-source-btn" href="https://www.google.com/search?q=read+${q}" target="_blank" rel="noopener noreferrer">Google</a>
     `;
   }
 
   if (readerLoading) readerLoading.style.display = 'flex';
   if (readerBlocked) readerBlocked.classList.remove('visible');
-  if (readerIframe) readerIframe.style.display = 'none';
+  setReaderIframeVisible(false);
 
   readerOverlay.classList.add('open');
-  document.body.style.overflow = 'hidden';
+  readerOverlay.setAttribute('aria-hidden', 'false');
+  pushOverlay('reader');
 
   readerResolved = false;
   readerLoadStart = Date.now();
@@ -1137,39 +1454,62 @@ function handleReaderLoad() {
 
 function showReaderBlocked() {
   if (readerLoading) readerLoading.style.display = 'none';
-  if (readerIframe) readerIframe.style.display = 'none';
+  setReaderIframeVisible(false);
   if (readerBlocked) readerBlocked.classList.add('visible');
 }
 
 function showReaderLoaded() {
   if (readerLoading) readerLoading.style.display = 'none';
   if (readerBlocked) readerBlocked.classList.remove('visible');
-  if (readerIframe) readerIframe.style.display = 'block';
+  setReaderIframeVisible(true);
 }
 
 function closeReader() {
   if (!readerOverlay) return;
   readerOverlay.classList.remove('open');
-  document.body.style.overflow = '';
+  readerOverlay.setAttribute('aria-hidden', 'true');
+  popOverlay('reader');
   clearTimeout(readerWaitTimer);
+  readerWaitTimer = null;
   if (readerIframe) {
     readerIframe.onload = null;
+    setReaderIframeVisible(false);
+    // about:blank tears down the framed document; without it the embedded
+    // reader keeps running (and playing audio) in the background.
     readerIframe.src = 'about:blank';
   }
 }
 
 if (readerCloseBtn) readerCloseBtn.addEventListener('click', closeReader);
 
+if (readerCopyLinkBtn) {
+  readerCopyLinkBtn.addEventListener('click', async () => {
+    const ok = await copyText(currentReaderUrl);
+    showToast(
+      ok ? 'Reader link copied to clipboard' : 'Could not copy — long-press the address bar instead.',
+      ok ? '📋' : '⚠'
+    );
+  });
+}
+
 // ── Detail Modal Controller ────────────────────────────────────────────────
+function closeDetailModal() {
+  if (!detailModal) return;
+  detailModal.classList.remove('open');
+  detailModal.setAttribute('aria-hidden', 'true');
+  popOverlay('detail');
+}
+
 function openDetailModal(rec) {
-  if (!detailModal || !detailModalContent) return;
+  if (!detailModal || !detailModalContent || !rec) return;
   const saved = isBookmarked(rec.title);
 
   const coverMarkup = rec.coverImage
-    ? `<img src="${escapeHtml(rec.coverImage)}" alt="${escapeHtml(rec.title)}" class="detail-cover-img" />`
+    ? `<img src="${escapeHtml(rec.coverImage)}" alt="${escapeHtml(rec.title)}" class="detail-cover-img" loading="lazy" />`
     : `<div class="card-cover-placeholder" style="height:320px;"><span class="placeholder-symbol">読</span></div>`;
 
-  const genresMarkup = (rec.genre || []).map(g => `<span class="genre-tag-sm">${escapeHtml(g)}</span>`).join('');
+  const genresMarkup = toArray(rec.genre)
+    .map(g => `<span class="genre-tag-sm">${escapeHtml(g)}</span>`).join('');
 
   detailModalContent.innerHTML = `
     <div class="detail-grid">
@@ -1211,7 +1551,7 @@ function openDetailModal(rec) {
   `;
 
   document.getElementById('detail-read-btn')?.addEventListener('click', () => {
-    detailModal.classList.remove('open');
+    closeDetailModal();
     handleReadAction(rec);
   });
 
@@ -1219,55 +1559,66 @@ function openDetailModal(rec) {
     toggleBookmark(rec);
     const nowSaved = isBookmarked(rec.title);
     e.currentTarget.innerHTML = nowSaved ? '<span>Saved in Library ✓</span>' : '<span>Save to Library</span>';
+    e.currentTarget.setAttribute('aria-pressed', nowSaved ? 'true' : 'false');
   });
 
   document.getElementById('detail-similar-btn')?.addEventListener('click', () => {
-    detailModal.classList.remove('open');
-    if (searchInput) searchInput.value = `something like ${rec.title}`;
-    submitSearch(`something like ${rec.title}`);
+    closeDetailModal();
+    const similarQuery = `something like ${rec.title}`;
+    if (searchInput) searchInput.value = similarQuery;
+    submitSearch(similarQuery);
   });
 
   detailModal.classList.add('open');
-  document.body.style.overflow = 'hidden';
+  detailModal.setAttribute('aria-hidden', 'false');
+  pushOverlay('detail');
+}
+
+// Clicking the dimmed backdrop closes the modal. Without this the only exits
+// were the ✕ button and Escape.
+if (detailModal) {
+  detailModal.addEventListener('click', (e) => {
+    if (e.target === detailModal) closeDetailModal();
+  });
 }
 
 if (detailModalClose) {
-  detailModalClose.addEventListener('click', () => {
-    detailModal.classList.remove('open');
-    document.body.style.overflow = '';
-  });
+  detailModalClose.addEventListener('click', closeDetailModal);
 }
 
 // ── Command Palette (Cmd + K) ──────────────────────────────────────────────
 function openCmdPalette() {
   if (!cmdModal) return;
   cmdModal.classList.add('open');
-  document.body.style.overflow = 'hidden';
+  cmdModal.setAttribute('aria-hidden', 'false');
+  pushOverlay('cmd');
   if (cmdInput) {
     cmdInput.value = '';
     setTimeout(() => cmdInput.focus(), 100);
   }
+  // Reopening must show the full list, not last query's filtered subset.
+  filterCmdItems('');
 }
 
 function closeCmdPalette() {
   if (!cmdModal) return;
   cmdModal.classList.remove('open');
-  document.body.style.overflow = '';
+  cmdModal.setAttribute('aria-hidden', 'true');
+  popOverlay('cmd');
 }
 
 if (cmdTriggerBtn) cmdTriggerBtn.addEventListener('click', openCmdPalette);
 
 window.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     if (cmdModal && cmdModal.classList.contains('open')) closeCmdPalette();
     else openCmdPalette();
   } else if (e.key === 'Escape') {
+    // Close everything, innermost last. Each close releases only its own scroll
+    // lock, so a still-open overlay keeps the page frozen.
     closeCmdPalette();
-    if (detailModal) {
-      detailModal.classList.remove('open');
-      document.body.style.overflow = '';
-    }
+    if (detailModal && detailModal.classList.contains('open')) closeDetailModal();
     if (readerOverlay && readerOverlay.classList.contains('open')) closeReader();
   }
 });
@@ -1279,16 +1630,59 @@ if (cmdModal) {
 }
 
 if (cmdInput) {
+  cmdInput.addEventListener('input', () => filterCmdItems(cmdInput.value));
+
   cmdInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       const q = cmdInput.value.trim();
-      if (q) {
-        closeCmdPalette();
-        if (searchInput) searchInput.value = q;
-        submitSearch(q);
+      if (!q) {
+        // No typed query: Enter runs whichever item is highlighted.
+        const highlighted = cmdResultsList?.querySelector('.cmd-item:not([hidden])');
+        highlighted?.click();
+        return;
       }
+      closeCmdPalette();
+      if (searchInput) searchInput.value = q;
+      submitSearch(q);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveCmdHighlight(e.key === 'ArrowDown' ? 1 : -1);
     }
   });
+}
+
+// The palette listed every command and suggestion regardless of what had been
+// typed, and `cmdResultsList` was fetched but never used. Typing now narrows the
+// list, and the first surviving item is highlighted so Enter has something to run.
+function filterCmdItems(query) {
+  if (!cmdResultsList) return;
+  const needle = String(query || '').toLowerCase().trim();
+  const items = [...cmdResultsList.querySelectorAll('.cmd-item')];
+
+  let firstVisible = null;
+  for (const item of items) {
+    const label = item.dataset.search || item.textContent || '';
+    const visible = !needle || label.toLowerCase().includes(needle);
+    item.hidden = !visible;
+    item.classList.toggle('highlighted', visible && !firstVisible);
+    if (visible && !firstVisible) firstVisible = item;
+  }
+
+  if (cmdEmptyState) cmdEmptyState.hidden = items.length > 0 && Boolean(firstVisible);
+}
+
+function moveCmdHighlight(direction) {
+  if (!cmdResultsList) return;
+  const visible = [...cmdResultsList.querySelectorAll('.cmd-item')].filter(
+    item => !item.hidden
+  );
+  if (!visible.length) return;
+
+  const current = visible.findIndex(item => item.classList.contains('highlighted'));
+  const next = visible[(current + direction + visible.length) % visible.length];
+  for (const item of visible) item.classList.remove('highlighted');
+  next.classList.add('highlighted');
+  next.scrollIntoView({ block: 'nearest' });
 }
 
 document.querySelectorAll('.cmd-item').forEach(item => {
@@ -1313,30 +1707,37 @@ function renderLibrary() {
   const bookmarks = getLibraryBookmarks();
   updateLibraryBadge();
 
-  if (!bookmarks.length) {
-    if (libraryEmpty) libraryEmpty.style.display = 'block';
-    return;
-  }
-  if (libraryEmpty) libraryEmpty.style.display = 'none';
-
   const searchQuery = librarySearchInput ? librarySearchInput.value.toLowerCase().trim() : '';
 
   const filtered = bookmarks.filter(item => {
     if (libraryFilter !== 'all') {
-      const t = (item.type || '').toLowerCase();
+      const t = String(item.type || '').toLowerCase();
       if (libraryFilter === 'Light Novel' && !t.includes('novel')) return false;
       if (libraryFilter !== 'Light Novel' && t !== libraryFilter.toLowerCase()) return false;
     }
     if (searchQuery) {
-      return (item.title || '').toLowerCase().includes(searchQuery) ||
-             (item.synopsis || '').toLowerCase().includes(searchQuery);
+      return String(item.title || '').toLowerCase().includes(searchQuery) ||
+             String(item.synopsis || '').toLowerCase().includes(searchQuery);
     }
     return true;
   });
 
-  filtered.forEach(rec => {
-    libraryCardsGrid.appendChild(createCardElement(rec, true));
-  });
+  filtered.forEach(rec => appendCard(libraryCardsGrid, rec));
+
+  // Two distinct empty states: the library has nothing saved at all, versus the
+  // current filter/search matching none of what is saved. They used to collapse
+  // into one, so filtering down to zero titles showed "your library is empty".
+  const hasAny = bookmarks.length > 0;
+  if (libraryEmpty) libraryEmpty.style.display = hasAny ? 'none' : 'block';
+  if (libraryNoMatches) libraryNoMatches.style.display = hasAny && !filtered.length ? 'block' : 'none';
+  if (libraryNoMatchesText && hasAny && !filtered.length) {
+    const scope = [];
+    if (libraryFilter !== 'all') scope.push(`the "${libraryFilter}" tab`);
+    if (searchQuery) scope.push(`"${searchQuery}"`);
+    libraryNoMatchesText.textContent = scope.length
+      ? `No saved title matches ${scope.join(' and ')}. Try another tab or clear the search box.`
+      : 'Try another format tab or clear the search box.';
+  }
 }
 
 if (librarySearchInput) librarySearchInput.addEventListener('input', renderLibrary);
@@ -1359,13 +1760,20 @@ document.getElementById('empty-random-btn')?.addEventListener('click', triggerRa
 if (libraryExportBtn) {
   libraryExportBtn.addEventListener('click', () => {
     const list = getLibraryBookmarks();
+    if (!list.length) {
+      showToast('Your Library is empty — nothing to export.', '💾');
+      return;
+    }
     const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `kindoku-library-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // Revoking immediately can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Library exported to JSON', '💾');
   });
 }
@@ -1374,63 +1782,114 @@ if (libraryImportBtn && libraryFileInput) {
   libraryImportBtn.addEventListener('click', () => libraryFileInput.click());
   libraryFileInput.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
+    // Clear the value first: without this, re-picking the *same* file fires no
+    // `change` event and the import silently does nothing.
+    e.target.value = '';
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
+      let imported;
       try {
-        const imported = JSON.parse(event.target.result);
-        if (Array.isArray(imported)) {
-          const current = getLibraryBookmarks();
-          const merged = [...imported, ...current].filter((item, index, self) =>
-            index === self.findIndex(t => t.title.toLowerCase() === item.title.toLowerCase())
-          );
-          saveLibraryBookmarks(merged);
-          renderLibrary();
-          showToast(`Imported ${imported.length} bookmarks successfully!`, '📥');
-        }
+        imported = JSON.parse(event.target.result);
       } catch {
         showToast('Invalid JSON backup file format.', '❌');
+        return;
       }
+
+      if (!Array.isArray(imported)) {
+        showToast('Backup must be a JSON array of bookmarks.', '❌');
+        return;
+      }
+
+      const validCount = imported.filter(record => normalizeBookmark(record)).length;
+      const merged = mergeLibraryBookmarks(imported, getLibraryBookmarks());
+      if (!merged.length) {
+        showToast('No valid bookmarks found in that file.', '❌');
+        return;
+      }
+
+      saveLibraryBookmarks(merged);
+      renderLibrary();
+      showToast(
+        validCount === imported.length
+          ? `Imported ${validCount} bookmarks successfully!`
+          : `Imported ${validCount} of ${imported.length} entries (invalid rows skipped).`,
+        '📥'
+      );
     };
+    reader.onerror = () => showToast('Could not read that file.', '❌');
     reader.readAsText(file);
   });
 }
 
 // ── Load More Discovery ────────────────────────────────────────────────────
+// Appends only titles that aren't already on screen. The server used to treat
+// `exclude` as a prompt hint only, so a second "Load More" re-served titles the
+// user was already looking at as duplicate cards.
+function mergeRecommendations(existing, incoming) {
+  const seen = new Set(toArray(existing).map(rec => normalizeTitle(rec?.title)));
+  const fresh = [];
+  for (const rec of toArray(incoming)) {
+    const title = typeof rec?.title === 'string' ? rec.title.trim() : '';
+    if (!title) continue;
+    const key = normalizeTitle(title);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(rec);
+  }
+  return fresh;
+}
+
 if (loadMoreBtn) {
   loadMoreBtn.addEventListener('click', async () => {
-    if (currentQuery.mode !== 'discover') return;
+    if (currentQuery.mode !== 'discover' || loadMoreExhausted) return;
     loadMoreBtn.disabled = true;
+    const originalLabel = loadMoreText ? loadMoreText.textContent : '';
     if (loadMoreText) loadMoreText.textContent = 'Consulting Archives...';
 
+    const request = beginRequest();
+    const nextPage = currentPage + 1;
+
     try {
-      const res = await fetch('./api/recommend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await requestRecommendations(
+        {
           mode: 'discover',
           genres: currentQuery.genres,
           tags: currentQuery.tags,
           formats: currentQuery.formats,
           customInput: currentQuery.customInput,
-          exclude: allRecommendations.map(r => r.title).slice(-25),
-        }),
-      });
+          exclude: allRecommendations.map(r => r.title),
+          page: nextPage,
+        },
+        request
+      );
+      if (!request.isCurrent()) return;
 
-      const data = await res.json();
-      if (!res.ok || !data.recommendations) throw new Error(data.error || 'Failed to fetch more recommendations.');
+      currentPage = nextPage;
+      const fresh = mergeRecommendations(allRecommendations, data.recommendations);
+      allRecommendations = allRecommendations.concat(fresh);
 
-      data.recommendations.forEach(r => {
-        allRecommendations.push(r);
-      });
+      if (!data.recommendations.length || !fresh.length) {
+        // Nothing new left. `fresh.length === 0` while the server did return
+        // rows means they were all duplicates — either way there is no point
+        // offering the button again.
+        loadMoreExhausted = true;
+        if (loadMoreWrapper) loadMoreWrapper.style.display = 'none';
+        showToast('You have reached the end of these archives.', '📚');
+        return;
+      }
 
       applyResultsFilterAndSort();
-      showToast(`Loaded ${data.recommendations.length} new recommendations!`, '✨');
+      showToast(`Loaded ${fresh.length} new recommendations!`, '✨');
     } catch (err) {
-      showToast(err.message || 'Error loading more titles', '⚠');
+      if (!isAbortError(err) && request.isCurrent()) {
+        showToast(err.message || 'Error loading more titles', '⚠');
+      }
     } finally {
-      loadMoreBtn.disabled = false;
-      if (loadMoreText) loadMoreText.textContent = 'Discover 10 More';
+      if (request.isCurrent()) {
+        loadMoreBtn.disabled = false;
+        if (loadMoreText) loadMoreText.textContent = originalLabel;
+      }
     }
   });
 }

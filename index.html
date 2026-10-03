@@ -676,9 +676,16 @@
         <!-- Empty Library State -->
         <div id="library-empty" class="library-empty" style="display:none;">
           <div class="empty-icon">🔖</div>
-          <h3 class="library-empty-title">Your library is currently empty</h3>
-          <p class="library-empty-text">Click the bookmark icon on any recommendation card to save it here for later reading.</p>
+          <h3 class="library-empty-title" id="library-empty-title">Your library is currently empty</h3>
+          <p class="library-empty-text" id="library-empty-text">Click the bookmark icon on any recommendation card to save it here for later reading.</p>
           <button id="library-explore-btn" class="btn btn-primary" type="button">Explore Recommendations</button>
+        </div>
+
+        <!-- No Matches For Current Library Filter -->
+        <div id="library-no-matches" class="library-empty" style="display:none;">
+          <div class="empty-icon">🔍</div>
+          <h3 class="library-empty-title">No saved titles match</h3>
+          <p class="library-empty-text" id="library-no-matches-text">Try a different format tab or clear the search box.</p>
         </div>
       </div>
     </section>
@@ -776,6 +783,8 @@
             <span class="cmd-text">Lord of the Mysteries</span>
             <span class="cmd-badge">Novel</span>
           </button>
+
+          <p class="cmd-empty-state" id="cmd-empty-state" hidden>No command or title matches that.</p>
         </div>
       </div>
     </div>

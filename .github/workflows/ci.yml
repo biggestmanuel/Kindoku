@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Hourly. AniList can rename a tag or change a field without notice, and a
+  # deployment can break its own contract — both are third-party surfaces that
+  # nothing in the repository controls, so they are checked on a clock rather
+  # than on a commit.
+  schedule:
+    - cron: '37 6 * * 1'
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+# Cancel an in-flight run when the same ref is pushed again. The suite is fast,
+# so this mostly saves time on force-pushes to a PR branch.
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The project has zero runtime and dev dependencies, so there is no
+      # lockfile to install from — Node itself is the only requirement.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Lint
+        run: npm run lint
+
+      # Runs the suite twice on purpose. The handler keeps its rate-limit table
+      # and response caches in module scope, exactly as a warm serverless
+      # instance does, so a second identical pass proves no test depends on
+      # another test's leftovers.
+      - name: Test
+        run: npm run verify
+
+      # budget.test.mjs asserts that the timing constants in api/recommend.js and
+      # the maxDuration in vercel.json agree, and that maxDuration is a value
+      # Vercel actually accepts for the plan. Run in isolation so a
+      # misconfiguration is obvious rather than buried in the suite output.
+      - name: Function config is valid
+        run: node --test tests/budget.test.mjs
+
+      - name: Service worker precache is complete
+        run: node --test tests/service-worker.test.mjs
+
+  live:
+    name: AniList contract
+    # Talks to a third-party API that allows 30 requests per minute and is not
+    # under this repository's control. Running it on every push would burn that
+    # budget and make the branch check flaky for reasons unrelated to the change
+    # under test, so it runs on a schedule and on demand instead.
+    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Verify every UI tag and query shape against the live API
+        run: npm run test:live
+
+  deployed:
+    name: Production smoke test
+    # Contract tests against the live deployment. This is the only suite that
+    # exercises the real Groq pipeline, because GROQ_API_KEY lives in Vercel and
+    # never leaves it.
+    #
+    # Not on every push: Vercel deploys asynchronously, so a job fired
+    # immediately after a merge would race the deployment and report failures
+    # for a build that has not shipped yet. GitHub cannot wait for Vercel's
+    # webhook from inside this workflow, so this runs on a schedule and on
+    # demand. Run it locally right after deploying with `npm run test:deployed`.
+    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Contract test the deployment
+        run: npm run test:deployed
+        env:
+          DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://kindoku.vercel.app' }}

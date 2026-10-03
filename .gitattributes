@@ -1,0 +1,24 @@
+# Normalise line endings in the repository.
+#
+# Without this, `core.autocrlf=true` on Windows writes CRLF into the blobs, so
+# the same commit checks out with different bytes on Linux. Two consequences the
+# test suite cares about:
+#   - `dead-code.test.mjs` asserts no raw control bytes in source files, and a
+#     CRLF pair is indistinguishable from a stray CR without a shared rule.
+#   - Tests that split source on "\n" see a trailing "\r" on Windows and not on
+#     Linux, so the same test can pass in one place and fail in the other.
+#
+# `* text=auto eol=lf` normalises to LF in the repository and checks out LF
+# everywhere. The PNGs are binary and must be left alone.
+* text=auto eol=lf
+
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+
+*.png  binary
+*.ico  binary

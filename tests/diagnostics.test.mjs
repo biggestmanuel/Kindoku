@@ -1,0 +1,313 @@
+/**
+ * Diagnostics coverage.
+ *
+ * The AI path failing used to be completely invisible: the handler falls back
+ * to the direct AniList engine, which is fully functional, so a permanently
+ * broken Groq integration produced responses that looked completely healthy.
+ *
+ * These tests assert that each distinct upstream failure is reported. They are
+ * the reason a misconfigured deployment is now diagnosable from the Vercel logs
+ * instead of requiring a bisect.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import handler from '../api/recommend.js';
+
+const realFetch = globalThis.fetch;
+const realApiKey = process.env.GROQ_API_KEY;
+
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const ANILIST_URL = 'https://graphql.anilist.co';
+
+/** Captures console output produced during `fn`. */
+async function captureLog(fn) {
+  const lines = [];
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  const record = (...args) => {
+    lines.push(args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+  };
+  console.log = record;
+  console.warn = record;
+  console.error = record;
+  try {
+    await fn();
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+    console.error = originalError;
+  }
+  return lines.join('\n');
+}
+
+function createRes() {
+  const res = {
+    statusCode: null,
+    body: null,
+    status(code) { res.statusCode = code; return res; },
+    json(payload) { res.body = payload; return res; },
+  };
+  return res;
+}
+
+async function invoke(body) {
+  const res = createRes();
+  await handler({ method: 'POST', body, headers: {}, socket: {} }, res);
+  return res;
+}
+
+/** AniList answers, so the run gets as far as it can. */
+function anilistOk() {
+  return async url => {
+    if (url === GROQ_URL) throw new Error('Groq should not be reached in this test');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          Page: {
+            media: [{
+              title: { english: 'Fallback Title', romaji: 'Fallback Title', native: 'x' },
+              description: 'A story.',
+              coverImage: { large: null, medium: null },
+              averageScore: 80,
+              status: 'FINISHED',
+              genres: ['Action'],
+              siteUrl: null,
+              format: 'MANGA',
+              countryOfOrigin: 'JP',
+              externalLinks: [],
+            }],
+          },
+        },
+      }),
+    };
+  };
+}
+
+test.afterEach(() => {
+  globalThis.fetch = realFetch;
+  if (realApiKey === undefined) delete process.env.GROQ_API_KEY;
+  else process.env.GROQ_API_KEY = realApiKey;
+});
+
+test('a missing API key is reported, not silently ignored', async () => {
+  delete process.env.GROQ_API_KEY;
+  globalThis.fetch = anilistOk();
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Key Probe' }));
+  assert.match(log, /GROQ_API_KEY is not set/,
+    'a deployment with no key must say so, otherwise the AI path looks healthy while dead');
+});
+
+test('a blank or too-short key is treated as missing', async () => {
+  for (const value of ['', '   ', 'abc']) {
+    process.env.GROQ_API_KEY = value;
+    globalThis.fetch = anilistOk();
+    const log = await captureLog(() => invoke({ mode: 'search', searchInput: `Blank ${value.length}` }));
+    assert.match(log, /GROQ_API_KEY is not set/,
+      `a key of "${value}" should be reported as missing`);
+  }
+});
+
+test('a revoked key is reported with the upstream error code', async () => {
+  process.env.GROQ_API_KEY = 'gsk_revoked-for-test';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: { message: 'Invalid API Key', type: 'invalid_request_error', code: 'invalid_api_key' },
+        }),
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Revoked Probe' }));
+  assert.match(log, /invalid_api_key/, 'the upstream error code must be surfaced');
+  assert.match(log, /GROQ_API_KEY is missing, malformed or revoked/,
+    'the log should carry an actionable hint');
+});
+
+test('a retired model is reported as such', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return {
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            message: 'The model `llama-3.3-70b-versatile` has been decommissioned',
+            type: 'invalid_request_error',
+            code: 'model_not_found',
+          },
+        }),
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Retired Model Probe' }));
+  assert.match(log, /model_not_found/);
+  assert.match(log, /update GROQ_MODELS/, 'a decommissioned model needs a code change, not a key change');
+});
+
+test('an exhausted quota is reported distinctly from a bad key', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return { ok: false, status: 429, json: async () => ({ error: { message: 'Rate limit reached' } }) };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Quota Probe' }));
+  assert.match(log, /rate limit or quota is exhausted/,
+    'a quota problem must not be misdiagnosed as a bad key');
+});
+
+test('an empty completion is reported', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '' } }] }) };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Empty Probe' }));
+  assert.match(log, /no content in the choice/);
+});
+
+test('unparseable model output is reported', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'I am sorry, I cannot help.' } }] }),
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Refusal Probe' }));
+  assert.match(log, /not a usable JSON array/);
+});
+
+test('a network failure to Groq is reported', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) throw Object.assign(new Error('fetch failed'), { name: 'TypeError' });
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Network Probe' }));
+  assert.match(log, /network:/);
+});
+
+test('a non-JSON error body from Groq is reported without throwing', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return {
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new Error('Unexpected token < in JSON');
+        },
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Bad Body Probe' }));
+  assert.match(log, /http error/);
+  assert.match(log, /502/, 'the status is still reported when the body is unreadable');
+});
+
+test('a successful AI path logs nothing alarming', async () => {
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '[{"title":"Fallback Title"}]' } }],
+        }),
+      };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Happy Path Probe' }));
+  assert.doesNotMatch(log, /all models failed/);
+  assert.doesNotMatch(log, /GROQ_API_KEY is not set/);
+});
+
+test('the logged output never contains the API key', async () => {
+  // The single most important property of this feature: it must be safe to read
+  // Vercel logs, which are visible to anyone with project access.
+  const secret = 'gsk_SHOULD_NEVER_APPEAR_IN_LOGS';
+  process.env.GROQ_API_KEY = secret;
+
+  for (const failure of [
+    () => ({ ok: false, status: 401, json: async () => ({ error: { message: 'Invalid API Key', code: 'invalid_api_key' } }) }),
+    () => {
+      throw Object.assign(new Error('fetch failed'), { name: 'TypeError' });
+    },
+    () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '' } }] }) }),
+  ]) {
+    globalThis.fetch = async url => {
+      if (url === GROQ_URL) return failure();
+      return anilistOk()(url);
+    };
+    const log = await captureLog(() => invoke({ mode: 'search', searchInput: 'Secret Probe' }));
+    assert.ok(!log.includes(secret), `the API key leaked into: ${log}`);
+  }
+});
+
+test('the logged output never contains the user prompt', async () => {
+  // The prompt embeds the user's search text, which may be private.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return { ok: false, status: 500, json: async () => ({ error: { message: 'boom' } }) };
+    }
+    return anilistOk()(url);
+  };
+
+  const log = await captureLog(() =>
+    invoke({ mode: 'search', searchInput: 'MyPrivateSearchTerm987' }));
+  assert.ok(!log.includes('MyPrivateSearchTerm987'),
+    `the user's query leaked into the logs: ${log}`);
+});
+
+test('the fallback still returns results when the AI path is broken', async () => {
+  // The whole point of the fallback: a dead Groq must degrade, not break.
+  process.env.GROQ_API_KEY = 'gsk_revoked-for-test';
+  globalThis.fetch = async url => {
+    if (url === GROQ_URL) {
+      return { ok: false, status: 401, json: async () => ({ error: { code: 'invalid_api_key' } }) };
+    }
+    return anilistOk()(url);
+  };
+
+  const res = await captureLog(() => invoke({ mode: 'search', searchInput: 'Degraded Probe' })) && null;
+  const actual = createRes();
+  await handler(
+    { method: 'POST', body: { mode: 'search', searchInput: 'Degraded Probe' }, headers: {}, socket: {} },
+    actual
+  );
+
+  assert.equal(actual.statusCode, 200, 'a dead AI path must not surface as an error');
+  assert.ok(actual.body.recommendations.length > 0, 'the fallback produced nothing');
+  assert.equal(actual.body.model, 'AniList Direct Engine');
+  assert.ok(res === null);
+});
