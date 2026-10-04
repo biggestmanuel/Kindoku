@@ -54,6 +54,72 @@ const origins = {
   client: originsIn(clientJs),
 };
 
+// Vercel validates vercel.json against a schema and fails the build on an
+// unknown top-level key. `vercel.json` is plain JSON, not JSON5, so there is no
+// comment syntax — the obvious way to document a header rule is a "//" key, and
+// adding one silently stopped the deployment from building for 13 minutes before
+// anything said so.
+//
+// https://vercel.com/docs/project-configuration
+const VERCEL_SCHEMA_KEYS = new Set([
+  '$schema', 'builds', 'functions', 'headers', 'redirects', 'rewrites',
+  'cleanUrls', 'trailingSlash', 'git', 'crons', 'regions', 'images',
+  'framework', 'installCommand', 'devCommand', 'buildCommand',
+  'outputDirectory', 'ignoreCommand', 'public', 'overrides', 'env',
+]);
+
+test('vercel.json contains only keys Vercel accepts', () => {
+  const unknown = Object.keys(vercel).filter(k => !VERCEL_SCHEMA_KEYS.has(k));
+  assert.deepEqual(unknown, [],
+    `vercel.json has top-level key(s) outside Vercel's schema: ${unknown.join(', ')}. ` +
+    'Vercel fails the build on these, so nothing deploys. vercel.json is plain ' +
+    'JSON with no comment syntax — document it in the README instead.');
+});
+
+test('the API path carries the security headers explicitly', () => {
+  // `/(.*)` demonstrably does not reach a serverless function response: the
+  // policy was absent from /api/recommend while present on the shell. So the
+  // API is covered by its own rule rather than relying on the catch-all.
+  const apiRule = vercel.headers.find(r => r.source.startsWith('/api/'));
+  assert.ok(apiRule, 'no header rule covers /api/');
+
+  const keys = apiRule.headers.map(h => h.key.toLowerCase());
+  for (const required of [
+    'content-security-policy',
+    'x-content-type-options',
+    'referrer-policy',
+  ]) {
+    assert.ok(keys.includes(required),
+      `/api/ responses would be served without ${required}`);
+  }
+
+  // A stricter policy than the shell's is fine; a *looser* one is not.
+  const apiCsp = apiRule.headers
+    .find(h => h.key.toLowerCase() === 'content-security-policy').value;
+  assert.match(apiCsp, /script-src 'self'/);
+  assert.doesNotMatch(apiCsp, /unsafe-inline|unsafe-eval/,
+    'the API response policy allows inline script, which JSON never needs');
+});
+
+test('every header rule uses a header key Vercel recognises', () => {
+  const allowed = new Set([
+    'cache-control', 'content-security-policy', 'strict-transport-security',
+    'x-content-type-options', 'x-frame-options', 'referrer-policy',
+    'permissions-policy', 'cross-origin-opener-policy',
+    'cross-origin-embedder-policy', 'cross-origin-resource-policy',
+    'service-worker-allowed', 'x-robots-tag', 'etag', 'link', 'vary',
+    'content-language', 'x-vercel-cache', 'age',
+  ]);
+
+  for (const rule of vercel.headers) {
+    for (const header of rule.headers) {
+      assert.ok(allowed.has(header.key.toLowerCase()),
+        `the header "${header.key}" on "${rule.source}" is not a recognised ` +
+        'Vercel header and will be ignored');
+    }
+  }
+});
+
 test('a policy is configured, and it applies to every path', () => {
   const global = vercel.headers.find(r => r.source === '/(.*)');
   assert.ok(global,
