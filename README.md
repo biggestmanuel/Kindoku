@@ -105,6 +105,21 @@ saying so rather than an obscure assertion.
 It found seven real problems in production, including the AI path never being
 reached and preset queries returning HTTP 500.
 
+The suite spaces its API requests 1.2s apart on purpose. AniList allows 30
+requests per minute and slows enough to time out well before that — twenty
+concurrent identical queries were measured aborting at the 2.5s per-query
+timeout. A cold request fans out to several AniList calls at once, so a burst
+makes the third party fail and then asserts the app returned an empty page.
+Pacing is the honest fix; retrying an empty result would hide a real regression.
+
+### Degraded versus empty
+
+Both an unreachable catalogue and a query with no matches produce an empty array,
+and reporting the first as the second tells someone their filters are wrong when
+the question was never asked. `runCachedAnilistQuery` records which happened on
+the budget, the response carries `degraded`, and the client asks them to retry
+rather than to loosen their criteria.
+
 ### When the AI path breaks
 
 The handler falls back to the direct AniList engine, which is fully functional,
