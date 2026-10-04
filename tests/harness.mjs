@@ -230,7 +230,12 @@ class MemoryStorage {
   }
 }
 
-function createSandbox({ localStorage: seedStorage, provide = [], elements = {} } = {}) {
+function createSandbox({
+  localStorage: seedStorage,
+  provide = [],
+  elements = {},
+  prefersReducedMotion = false,
+} = {}) {
   const document = new FakeDocument();
   // `kindoku.js` captures its element references at load time, so anything a
   // test needs must exist before the script runs.
@@ -243,6 +248,24 @@ function createSandbox({ localStorage: seedStorage, provide = [], elements = {} 
   const navigator = { userAgent: 'node-test', clipboard: undefined };
   const location = { href: 'https://example.test/' };
 
+  // A real MediaQueryList, enough of one for the code under test: it reports
+  // `matches`, and lets a listener be registered so a test can flip the
+  // preference mid-session the way a user can from the OS settings.
+  const motionListeners = new Set();
+  const motionQuery = {
+    matches: prefersReducedMotion,
+    media: '(prefers-reduced-motion: reduce)',
+    addEventListener(_type, handler) { motionListeners.add(handler); },
+    removeEventListener(_type, handler) { motionListeners.delete(handler); },
+    addListener(handler) { motionListeners.add(handler); },
+    removeListener(handler) { motionListeners.delete(handler); },
+    /** Test-only: flip the preference and notify, as the browser would. */
+    __set(next) {
+      motionQuery.matches = next;
+      for (const handler of motionListeners) handler(motionQuery);
+    },
+  };
+
   const win = {
     document,
     localStorage,
@@ -254,12 +277,19 @@ function createSandbox({ localStorage: seedStorage, provide = [], elements = {} 
     open() {
       return null;
     },
-    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+    matchMedia: () => motionQuery,
     addEventListener() {},
     removeEventListener() {},
   };
   win.window = win;
   win.self = win;
+
+  // Animation frames are counted and dispatched manually. A test asserts on the
+  // count, which is the only way to prove an animation loop was *not* started
+  // rather than merely appears quiet.
+  let requestedFrames = 0;
+  let cancelledFrames = 0;
+  const frameCallbacks = new Map();
 
   return {
     document,
@@ -267,10 +297,27 @@ function createSandbox({ localStorage: seedStorage, provide = [], elements = {} 
     navigator,
     location,
     window: win,
+    motionQuery,
     innerWidth: win.innerWidth,
     innerHeight: win.innerHeight,
-    requestAnimationFrame: () => 0,
-    cancelAnimationFrame: () => {},
+    requestAnimationFrame(callback) {
+      requestedFrames += 1;
+      const id = requestedFrames;
+      frameCallbacks.set(id, callback);
+      return id;
+    },
+    cancelAnimationFrame(id) {
+      cancelledFrames += 1;
+      frameCallbacks.delete(id);
+    },
+    /** Test-only: run every pending animation frame callback once. */
+    flushFrames(timestamp = 16) {
+      const pending = [...frameCallbacks.entries()];
+      frameCallbacks.clear();
+      for (const [, callback] of pending) callback(timestamp);
+      return pending.length;
+    },
+    frameStats: () => ({ requested: requestedFrames, cancelled: cancelledFrames, pending: frameCallbacks.size }),
     fetch: async () => {
       throw new Error('fetch is not available in the sandbox');
     },

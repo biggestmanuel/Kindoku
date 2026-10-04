@@ -2,7 +2,7 @@
 <html lang="en" data-theme="gold">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Kindoku — Discover Manga, Manhwa, Manhua & Light Novels across every genre, mood, and trope. Powered by AI and AniList." />
   <meta name="keywords" content="manga, manhwa, manhua, light novels, recommendation engine, solo leveling, webtoons, anilist" />
   <title>Kindoku · 金 · 흑 · 読</title>
@@ -837,7 +837,19 @@
           </div>
         </div>
 
-        <iframe id="reader-iframe" class="reader-iframe" title="Kindoku Reader" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+        <!--
+  The reader displays a different site's markup on every title, so this frame is
+  the most dangerous thing in the app.
+
+  `allow-scripts` WITHOUT `allow-same-origin` is the whole point. The two
+  together are worse than no sandbox at all: a sandboxed frame that is also
+  same-origin runs scripts in this origin, so the framed page can read
+  localStorage — the saved library and the search history — and rewrite this DOM.
+  Dropping allow-same-origin puts the framed page in an opaque origin, where it
+  cannot reach anything here. Its own storage and cookies stop working, which is
+  the accepted trade: a manga reader has no need for them.
+-->
+<iframe id="reader-iframe" class="reader-iframe" title="Kindoku Reader" referrerpolicy="no-referrer" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
       </div>
     </div>
 

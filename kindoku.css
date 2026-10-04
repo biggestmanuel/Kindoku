@@ -2667,3 +2667,32 @@ h1, h2, h3 {
     grid-template-columns: 1fr;
   }
 }
+/* -- Reduced motion ---------------------------------------------------------
+   Honoured for the whole document rather than per-rule, so a new animation is
+   covered the day it is added instead of needing to be remembered.
+
+   Infinite animations are removed rather than merely slowed: an orb drifting for
+   18 seconds in a loop is exactly the kind of persistent background movement
+   that triggers vestibular symptoms, and "slower" is not "still".
+
+   Transitions are collapsed to near-zero instead of removed, because a button
+   that changes state with no feedback at all is worse for everyone than one
+   that responds instantly. The load-shimmer and load-slide are dropped because
+   they convey "still working", and a static progress bar does that better. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Keep the particle canvas from being painted at all: with the JS loop also
+     stopped there is nothing to show, and an empty full-screen canvas still
+     costs a compositing layer. */
+  #particle-canvas {
+    display: none !important;
+  }
+}

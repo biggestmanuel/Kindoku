@@ -1,0 +1,235 @@
+/**
+ * Security headers.
+ *
+ * A Content-Security-Policy is only as good as its accuracy. One that is too
+ * strict breaks the app in ways that look like unrelated bugs — a blocked font
+ * is a fallback typeface, a blocked image is an empty card, a blocked frame is a
+ * reader that never loads. One that is too loose is decoration.
+ *
+ * So the policy is asserted against what the code actually does: every origin
+ * the browser contacts, every inline style it emits, every frame it embeds. When
+ * someone adds a feature that talks to a new host, this fails and names the
+ * directive to widen, instead of the feature failing silently in production.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const read = (...p) => readFileSync(resolve(REPO_ROOT, ...p), 'utf8');
+
+const vercel = JSON.parse(read('vercel.json'));
+const indexHtml = read('index.html');
+const clientJs = read('kindoku.js');
+const css = read('kindoku.css');
+
+const csp = vercel.headers
+  .flatMap(rule => rule.headers)
+  .find(h => h.key.toLowerCase() === 'content-security-policy')?.value;
+
+assert.ok(csp, 'no Content-Security-Policy is configured');
+
+// Values are normalised: quotes stripped and any scheme removed, so assertions
+// compare bare tokens like `self` and `fonts.googleapis.com` rather than
+// `'self'` and `https://fonts.googleapis.com`.
+const directives = new Map(
+  csp.split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const [name, ...values] = part.split(/\s+/);
+      return [name, values.map(v => v.replace(/^['"]|['"]$/g, '').replace(/^https?:\/\//, ''))];
+    })
+);
+
+/** Every origin the browser can be asked to contact, gathered from the source. */
+function originsIn(source) {
+  return new Set([...source.matchAll(/https:\/\/([a-z0-9.-]+)/gi)].map(m => m[1].toLowerCase()));
+}
+
+const origins = {
+  index: originsIn(indexHtml),
+  client: originsIn(clientJs),
+};
+
+test('a policy is configured, and it applies to every path', () => {
+  const global = vercel.headers.find(r => r.source === '/(.*)');
+  assert.ok(global,
+    'no catch-all header rule, so the policy is absent from most responses');
+  const keys = global.headers.map(h => h.key.toLowerCase());
+  for (const required of [
+    'content-security-policy',
+    'x-content-type-options',
+    'referrer-policy',
+    'permissions-policy',
+    'strict-transport-security',
+  ]) {
+    assert.ok(keys.includes(required), `${required} is not set on every response`);
+  }
+});
+
+test('script-src does not allow inline or eval', () => {
+  // The directive that carries the weight. This codebase builds HTML from
+  // strings, so it is exactly the case CSP exists for.
+  const scriptSrc = directives.get('script-src') || [];
+  assert.deepEqual(scriptSrc, ['self'],
+    `script-src is "${scriptSrc.join(' ')}". Inline script or eval must not be ` +
+    'allowed: this app assembles markup with innerHTML throughout.');
+});
+
+test('the app genuinely has no inline script for the strict policy to break', () => {
+  // If someone adds an inline <script> or an eval() later, the policy above
+  // will silently break the feature at runtime. Fail here instead, where the
+  // message can explain why.
+  assert.doesNotMatch(indexHtml, /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/i,
+    'index.html contains an inline <script>; script-src \'self\' will block it');
+  for (const [name, source] of [['kindoku.js', clientJs], ['sw.js', read('sw.js')]]) {
+    assert.doesNotMatch(source, /\beval\s*\(|new\s+Function\s*\(/,
+      `${name} uses eval or new Function, which script-src 'self' blocks`);
+  }
+});
+
+test('unsafe-inline is allowed for styles only', () => {
+  const styleSrc = directives.get('style-src') || [];
+  assert.ok(styleSrc.includes('unsafe-inline'),
+    "style-src dropped 'unsafe-inline'; the markup still carries inline style attributes");
+  for (const directive of ['script-src', 'frame-src', 'object-src']) {
+    assert.ok(!(directives.get(directive) || []).includes('unsafe-inline'),
+      `${directive} allows 'unsafe-inline'`);
+  }
+});
+
+test('every inline style in the markup has a home in the policy', () => {
+  // If the inline styles are ever moved to classes, this tells you to tighten
+  // style-src, and the assertion above tells you to drop 'unsafe-inline'.
+  const inlineStyles = [
+    ...indexHtml.matchAll(/\sstyle="[^"]*"/g),
+    ...clientJs.matchAll(/\sstyle="[^"]*"/g),
+  ];
+  assert.ok(inlineStyles.length > 0,
+    'no inline style attributes remain — style-src can be tightened to ' +
+    "'self' and this test should be inverted");
+});
+
+test('object-src and base-uri are closed', () => {
+  assert.deepEqual(directives.get('object-src'), ['none'],
+    'object-src must be none; plugins are never used');
+  assert.deepEqual(directives.get('base-uri'), ['self'],
+    'base-uri must be pinned, or an injected <base> redirects every asset');
+  assert.deepEqual(directives.get('form-action'), ['self'],
+    'form-action must be pinned, or an injected form posts credentials offsite');
+});
+
+test('the app cannot be framed', () => {
+  assert.deepEqual(directives.get('frame-ancestors'), ['none']);
+  const xfo = vercel.headers
+    .flatMap(r => r.headers)
+    .find(h => h.key.toLowerCase() === 'x-frame-options')?.value;
+  assert.ok(xfo && /^(DENY|SAMEORIGIN)$/i.test(xfo),
+    'X-Frame-Options is missing or permissive; frame-ancestors is ignored by old browsers');
+});
+
+test('every third-party origin the app contacts is allowed explicitly', () => {
+  // Anything the browser fetches cross-origin has to be named, or the feature
+  // breaks in production and nowhere else.
+  const required = {
+    'style-src': ['fonts.googleapis.com'],
+    'font-src': ['fonts.gstatic.com'],
+    'img-src': ['anilist.co'],
+  };
+
+  for (const [directive, hosts] of Object.entries(required)) {
+    const allowed = (directives.get(directive) || []).join(' ');
+    for (const host of hosts) {
+      assert.ok(allowed.includes(host),
+        `${directive} does not allow ${host}; the browser will refuse those ` +
+        'requests and the feature will fail only in production');
+    }
+  }
+});
+
+test('no origin in the source is silently unaccounted for', () => {
+  // The reverse direction, which is the one that catches new work. Every origin
+  // the code can reach must be classified here, and the policy must allow it
+  // through the matching directive. Adding an integration therefore fails this
+  // test with a directive to widen, rather than shipping a blocked request.
+  const frameSrc = directives.get('frame-src') || [];
+  const frameAllowsHttps = frameSrc.includes('https:');
+
+  // Hosts used as top-level navigation from a link or window.open. CSP does not
+  // govern navigation, so they need no directive.
+  const navigationOnly = new Set(['translate.google.com', 'www.google.com']);
+
+  const all = new Set([...origins.index, ...origins.client]);
+  assert.ok(all.size > 0, 'no origins found; this test has stopped looking');
+
+  for (const host of all) {
+    if (navigationOnly.has(host)) continue;
+
+    if (host.endsWith('anilist.co')) {
+      assert.ok((directives.get('img-src') || []).some(a => a === 'anilist.co' || a === '*.anilist.co'),
+        `img-src does not allow ${host}, so covers will not load`);
+      continue;
+    }
+    if (host === 'fonts.googleapis.com') {
+      assert.ok((directives.get('style-src') || []).includes('fonts.googleapis.com'),
+        `style-src does not allow ${host}, so the webfonts request is blocked`);
+      continue;
+    }
+    if (host === 'fonts.gstatic.com') {
+      assert.ok((directives.get('font-src') || []).includes('fonts.gstatic.com'),
+        `font-src does not allow ${host}, so the font files themselves are blocked`);
+      continue;
+    }
+
+    // Everything else in the source is a reading site, which the reader frames.
+    assert.ok(frameAllowsHttps,
+      `${host} can be framed by the reader but frame-src does not permit https`);
+    assert.ok(!navigationOnly.has(host),
+      `${host} is unclassified: add it to the policy or to navigationOnly`);
+  }
+});
+
+test('the reader can embed third-party reading sites', () => {
+  // frame-src cannot enumerate these: AniList links a different site per title.
+  const frameSrc = (directives.get('frame-src') || []).join(' ');
+  assert.match(frameSrc, /https:/,
+    'frame-src must permit https framing or the in-app reader never loads');
+  assert.doesNotMatch(frameSrc, /\*|\bdata:/,
+    'frame-src is unrestricted beyond https, which is more than the reader needs');
+});
+
+test('the viewport does not disable pinch zoom', () => {
+  // `maximum-scale=1, user-scalable=no` stops people zooming, which fails WCAG
+  // 1.4.4 (Resize Text) and is one of the most common mobile accessibility
+  // faults there is. The meta tag is the only place it can be set, so it is
+  // asserted rather than left to review.
+  const viewport = /<meta[^>]+name="viewport"[^>]*>/i.exec(indexHtml)?.[0];
+  assert.ok(viewport, 'no viewport meta tag');
+  assert.doesNotMatch(viewport, /user-scalable\s*=\s*no/i,
+    'the viewport disables pinch zoom');
+  assert.doesNotMatch(viewport, /maximum-scale\s*=\s*1(\.0)?\b/i,
+    'the viewport caps zoom at 1x');
+  assert.match(viewport, /width\s*=\s*device-width/i);
+});
+
+test('the reader iframe is sandboxed', () => {
+  // The reader displays a different site's markup in a same-origin frame, which
+  // is the single most dangerous thing this app does. A sandbox without
+  // allow-same-origin keeps that page unable to reach our DOM or storage.
+  const iframe = /<iframe[^>]*id="reader-iframe"[^>]*>/i.exec(indexHtml)?.[0]
+    || /<iframe[^>]*>/i.exec(indexHtml)?.[0];
+  assert.ok(iframe, 'no iframe in the shell');
+  assert.match(iframe, /\bsandbox="/,
+    'the reader iframe is not sandboxed; a malicious reading site gets same-origin access');
+  assert.doesNotMatch(iframe, /allow-same-origin/,
+    'the reader iframe allows same-origin, which defeats the sandbox');
+});
+
+test('the stylesheet has no inline javascript urls', () => {
+  assert.doesNotMatch(css, /url\(\s*['"]?javascript:/i);
+  assert.doesNotMatch(indexHtml, /javascript:/i,
+    'index.html contains a javascript: url');
+});

@@ -62,6 +62,14 @@ self.addEventListener('activate', (event) => {
             .map((key) => caches.delete(key))
         )
       )
+      // Navigation preload is opt-in per worker and only takes effect once the
+      // worker is active. It is what lets a navigation reach the network while
+      // this worker is still starting up, instead of after.
+      .then(() => {
+        const registration = self.registration;
+        if (!registration || !registration.navigationPreload) return undefined;
+        return registration.navigationPreload.enable();
+      })
       .then(() => self.clients.claim())
   );
 });
@@ -100,8 +108,19 @@ self.addEventListener('fetch', (event) => {
 
   // ── Navigations: network-first ──
   if (request.mode === 'navigate') {
+    // Navigation preload hands us the network response the browser already
+    // started fetching while this worker was booting. Without it a navigation
+    // waits for the worker to start, then re-issues the same request — which is
+    // the whole cost a service worker adds to a page load, and it lands on every
+    // single page load because navigations are network-first.
+    //
+    // Falls back to a plain fetch where preload is unavailable, so the strategy
+    // is unchanged rather than broken.
+    const network =
+      event.preloadResponse || fetch(request);
+
     event.respondWith(
-      fetch(request)
+      network
         .then((response) => {
           cacheResponse(request, response);
           return response;

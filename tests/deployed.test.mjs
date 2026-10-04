@@ -412,6 +412,69 @@ test('deployed: the API path is not shadowed by the static shell', { timeout: TE
   );
 });
 
+// ── Security headers, as actually served ─────────────────────────────────────
+// A policy in vercel.json that never reaches the browser is worse than none: it
+// looks like protection in review and provides none in production. These assert
+// on the response headers, not the config.
+
+test('deployed: the app shell carries a strict Content-Security-Policy', { timeout: TEST_TIMEOUT_MS }, async () => {
+  const { status, headers } = await postJson('/');
+  assert.equal(status, 200);
+
+  const csp = headers.get('content-security-policy');
+  assert.ok(csp, 'no Content-Security-Policy is served; vercel.json is not taking effect');
+
+  const directive = name => csp.split(';').map(s => s.trim())
+    .find(s => s.startsWith(`${name} `))?.split(/\s+/).slice(1) ?? [];
+
+  assert.deepEqual(directive('script-src'), ["'self'"],
+    'script-src is not strict on the deployment');
+  assert.deepEqual(directive('object-src'), ["'none'"]);
+  assert.deepEqual(directive('base-uri'), ["'self'"]);
+  assert.deepEqual(directive('frame-ancestors'), ["'none'"]);
+  assert.ok(!directive('script-src').includes("'unsafe-inline'"),
+    'the deployment allows inline script, which the source does not need');
+});
+
+test('deployed: the reader iframe is sandboxed without same-origin', { timeout: TEST_TIMEOUT_MS }, async () => {
+  // allow-scripts together with allow-same-origin removes the sandbox entirely:
+  // the framed site would run scripts in this origin and could read the saved
+  // library and the search history out of localStorage.
+  const { status, text } = await postJson('/');
+  assert.equal(status, 200);
+
+  const iframe = /<iframe[^>]*id="reader-iframe"[^>]*>/i.exec(text)?.[0];
+  assert.ok(iframe, 'the reader iframe is missing from the deployed shell');
+  assert.match(iframe, /\bsandbox="/, 'the deployed reader iframe is not sandboxed');
+  assert.doesNotMatch(iframe, /allow-same-origin/,
+    'the deployed reader iframe allows same-origin, which defeats the sandbox');
+});
+
+test('deployed: the shell does not disable pinch zoom', { timeout: TEST_TIMEOUT_MS }, async () => {
+  const { status, text } = await postJson('/');
+  assert.equal(status, 200);
+
+  const viewport = /<meta[^>]+name="viewport"[^>]*>/i.exec(text)?.[0];
+  assert.ok(viewport, 'no viewport meta tag in the deployed shell');
+  assert.doesNotMatch(viewport, /user-scalable\s*=\s*no/i,
+    'the deployed viewport disables pinch zoom, which fails WCAG 1.4.4');
+  assert.doesNotMatch(viewport, /maximum-scale\s*=\s*1(\.0)?\b/i);
+});
+
+test('deployed: hardening headers are present on the API too', { timeout: TEST_TIMEOUT_MS }, async () => {
+  const { headers } = await withoutDegraded(() =>
+    request({ mode: 'discover', genres: ['Action'], formats: ['Manga'] }));
+
+  assert.equal(headers.get('x-content-type-options'), 'nosniff',
+    'a JSON endpoint without nosniff can have its content type sniffed');
+  assert.match(headers.get('referrer-policy') || '', /strict-origin|no-referrer/,
+    'no Referrer-Policy: the reader opens third-party reading sites that would ' +
+    'otherwise receive this origin in the Referer header');
+  assert.match(headers.get('content-security-policy') || '',
+    /frame-ancestors\s+'none'/,
+    'the API response has no policy, so a JSON body could be framed');
+});
+
 // ── Which build is deployed ───────────────────────────────────────────────
 
 test('deployed: the current build is running', { timeout: TEST_TIMEOUT_MS }, async () => {

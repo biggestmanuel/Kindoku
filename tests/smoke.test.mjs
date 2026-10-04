@@ -17,6 +17,23 @@ const realFetch = globalThis.fetch;
 const realApiKey = process.env.GROQ_API_KEY;
 
 /**
+ * Polls until `predicate` holds, instead of sleeping a fixed interval.
+ *
+ * Node runs the test files in parallel, and timing.test.mjs deliberately holds
+ * the event loop busy for seconds. A hardcoded sleep is therefore either too
+ * short (flaky failure that looks like a product bug) or needlessly slow (a
+ * suite that takes seconds longer than it needs to).
+ */
+async function waitFor(predicate, message, { timeoutMs = 5_000, intervalMs = 5 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting: ${message}`);
+}
+
+/**
  * Stubs only the *upstream* calls, leaving loopback traffic real.
  *
  * These tests drive the server with `fetch`, so a blanket stub would intercept
@@ -225,8 +242,15 @@ test('smoke: a disconnecting client cannot crash the function', async t => {
     signal: controller.signal,
   });
 
-  // Let the request reach the handler, then hang up.
-  await new Promise(resolve => setTimeout(resolve, 50));
+  // Wait for the handler to actually reach the upstream rather than sleeping a
+  // fixed interval and hoping. A 50ms sleep is fine on an idle machine and fails
+  // when the suite runs alongside timing.test.mjs, which deliberately holds the
+  // event loop busy for seconds. That produced an intermittent
+  // "resolveAnilist is not a function" which looked like a handler crash and was
+  // really this race.
+  await waitFor(() => typeof resolveAnilist === 'function',
+    'the handler never called AniList, so there was nothing to abandon');
+
   controller.abort();
   await assert.rejects(pending, () => true, 'the client aborted as expected');
 

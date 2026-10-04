@@ -173,13 +173,59 @@ function initParticles() {
   for (let i = 0; i < count; i++) particles.push(new Particle());
 }
 
-function animateParticles(t = 0) {
-  if (!ctx || !canvas) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  particles.forEach(p => { p.update(); p.draw(t); });
-  requestAnimationFrame(animateParticles);
+// ── Reduced motion ──────────────────────────────────────────────────────────
+// The landing page has three continuously floating orbs, a pulsing logo and up to
+// 160 particles repainting every frame. Someone who has asked the operating
+// system for reduced motion gets none of that.
+//
+// Checked live rather than once at load, because the preference can be toggled
+// while the page is open. When reduced: the particle field is drawn once as a
+// static field and the animation loop never starts, which also stops 60fps
+// repainting of a full-viewport canvas. Flipping the preference back starts it.
+//
+// Declared above the load-time canvas setup below: that code runs during
+// evaluation and reads these, so a `const` further down the file would be in
+// its temporal dead zone and throw on every page load.
+const reduceMotionQuery = window.matchMedia
+  ? window.matchMedia('(prefers-reduced-motion: reduce)')
+  : { matches: false, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } };
+
+let particleFrame = null;
+
+function prefersReducedMotion() {
+  return reduceMotionQuery.matches === true;
 }
 
+function drawParticlesOnce() {
+  if (!ctx || !canvas) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  particles.forEach(p => p.draw(0));
+}
+
+function startParticles() {
+  if (particleFrame || prefersReducedMotion()) return;
+  particleFrame = requestAnimationFrame(function step(t) {
+    if (!ctx || !canvas) { particleFrame = null; return; }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => { p.update(); p.draw(t); });
+    particleFrame = requestAnimationFrame(step);
+  });
+}
+
+function stopParticles() {
+  if (!particleFrame) return;
+  cancelAnimationFrame(particleFrame);
+  particleFrame = null;
+}
+
+function syncParticlesWithMotionPreference() {
+  if (prefersReducedMotion()) {
+    stopParticles();
+    drawParticlesOnce();
+  } else {
+    startParticles();
+  }
+}
 // Debounced so a drag-resize doesn't rebuild the whole particle field on every
 // single resize event.
 let resizeFrame = null;
@@ -202,7 +248,14 @@ if (canvas) {
   window.addEventListener('blur', () => { mouseX = -1000; mouseY = -1000; });
   resizeCanvas();
   initParticles();
-  animateParticles();
+  syncParticlesWithMotionPreference();
+
+  // Safari below 14 only has the deprecated addListener API.
+  if (typeof reduceMotionQuery.addEventListener === 'function') {
+    reduceMotionQuery.addEventListener('change', syncParticlesWithMotionPreference);
+  } else if (typeof reduceMotionQuery.addListener === 'function') {
+    reduceMotionQuery.addListener(syncParticlesWithMotionPreference);
+  }
 }
 
 // ── Master Constants & Discovery Data ──────────────────────────────────────

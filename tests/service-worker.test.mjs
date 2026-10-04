@@ -85,7 +85,12 @@ function createCaches(initial = {}, available = null) {
 }
 
 /** Loads sw.js with stubbed globals and returns the captured listeners. */
-function loadServiceWorker({ caches, fetchImpl, origin = 'https://kindoku.test' } = {}) {
+function loadServiceWorker({
+  caches,
+  fetchImpl,
+  origin = 'https://kindoku.test',
+  preloadSupported = true,
+} = {}) {
   const listeners = new Map();
   const requestsMade = [];
 
@@ -102,6 +107,21 @@ function loadServiceWorker({ caches, fetchImpl, origin = 'https://kindoku.test' 
     __skippedWaiting: false,
     __claimed: false,
   };
+
+  // Navigation preload, as the browser exposes it. `preloadSupported: false`
+  // reproduces an engine without it, which must degrade to a plain fetch rather
+  // than throw.
+  self.registration = preloadSupported
+    ? {
+      navigationPreload: {
+        enabled: false,
+        enable() {
+          self.registration.navigationPreload.enabled = true;
+          return Promise.resolve();
+        },
+      },
+    }
+    : { navigationPreload: undefined };
 
   const Request = class Request {
     constructor(input) {
@@ -132,10 +152,12 @@ function loadServiceWorker({ caches, fetchImpl, origin = 'https://kindoku.test' 
 }
 
 /** Runs the fetch listener and returns the response it responded with. */
-async function runFetch(listeners, request) {
+async function runFetch(listeners, request, { preloadResponse } = {}) {
   let respondWith;
   const event = {
     request,
+    // Present only when the browser has one, which is the real condition.
+    ...(preloadResponse !== undefined ? { preloadResponse } : {}),
     respondWith(promise) {
       respondWith = promise;
     },
@@ -227,7 +249,94 @@ test('a failing precache asset rejects the whole install', async () => {
   await assert.rejects(installed, /Failed to fetch/);
 });
 
-test('activate deletes every cache except the current one', async () => {
+test('navigation preload is enabled on activation', async () => {
+  // Without it, every page load waits for this worker to boot and then re-issues
+  // the navigation — the entire cost a service worker adds to a page load, paid
+  // on every load because navigations are network-first.
+  const caches = createCaches({ [CACHE_NAME]: [] });
+  const { self, listeners } = loadServiceWorker({ caches });
+
+  let activated;
+  for (const handler of listeners.get('activate') || []) {
+    handler({ waitUntil: p => { activated = p; } });
+  }
+  await activated;
+
+  assert.equal(self.registration.navigationPreload.enabled, true,
+    'navigation preload was not enabled, so navigations wait on worker startup');
+  assert.equal(self.__claimed, true);
+});
+
+test('activation still completes where navigation preload is unavailable', async () => {
+  // Older engines and some privacy configurations expose no navigationPreload.
+  // It must degrade to the previous behaviour, not throw and leave the old
+  // caches undeleted.
+  const caches = createCaches({
+    'kindoku-cache-v1': [['/old', okResponse]],
+    [CACHE_NAME]: [],
+  });
+  const { self, listeners } = loadServiceWorker({ caches, preloadSupported: false });
+
+  let activated;
+  for (const handler of listeners.get('activate') || []) {
+    handler({ waitUntil: p => { activated = p; } });
+  }
+  await activated;
+
+  assert.equal(self.__claimed, true, 'activation did not complete');
+  assert.deepEqual([...caches.__stores.keys()], [CACHE_NAME],
+    'the stale cache was not deleted when preload was unsupported');
+});
+
+test('a navigation uses the preloaded response instead of re-fetching', async () => {
+  // The point of preload: the browser already has the response, so issuing a
+  // second identical request wastes a round trip on every page load.
+  const caches = createCaches({ [CACHE_NAME]: [] });
+  let fetches = 0;
+  const { listeners } = loadServiceWorker({
+    caches,
+    fetchImpl: async () => { fetches += 1; return okResponse; },
+  });
+
+  // The browser exposes preloadResponse as a promise, so that is what arrives.
+  // It needs `clone` because a real Response always has one and the worker
+  // caches a copy.
+  const preloaded = { ok: true, status: 200, fromPreload: true, clone: () => preloaded };
+  const response = await runFetch(listeners, shellRequest('/'), {
+    preloadResponse: Promise.resolve(preloaded),
+  });
+
+  assert.equal(response, preloaded, 'the preloaded response was not used');
+  assert.equal(fetches, 0, `the navigation was fetched again despite preload (${fetches} fetches)`);
+});
+
+test('a navigation falls back to fetching when there is no preloaded response', async () => {
+  const caches = createCaches({ [CACHE_NAME]: [] });
+  let fetches = 0;
+  const { listeners } = loadServiceWorker({
+    caches,
+    fetchImpl: async () => { fetches += 1; return okResponse; },
+  });
+
+  const response = await runFetch(listeners, shellRequest('/'), {});
+  assert.equal(response, okResponse);
+  assert.equal(fetches, 1, 'the network was never consulted');
+});
+
+test('a failing preloaded response still falls back to the cache', async () => {
+  const cachedShell = { ok: true, status: 200, fromCache: true };
+  const caches = createCaches({ [CACHE_NAME]: [[`${origin}/index.html`, cachedShell]] });
+  const { listeners } = loadServiceWorker({ caches });
+
+  const failing = Promise.reject(new TypeError('preload failed'));
+  const response = await runFetch(listeners, shellRequest('/'), {
+    preloadResponse: failing,
+  });
+  assert.equal(response, cachedShell,
+    'a rejected preload response must still fall back to the cached shell');
+});
+
+test('activate deletes every cache except the current one', { timeout: 20_000 }, async () => {
   const caches = createCaches({
     'kindoku-cache-v1': [['/old', okResponse]],
     'kindoku-cache-v2': [['/older', okResponse]],

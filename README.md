@@ -72,6 +72,8 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `service-worker.test.mjs` | Caching strategy, driven through stubbed `self` and Cache Storage. |
 | `html.test.mjs` | Markup structure and accessibility: labels, ARIA, iframe sandboxing, asset existence, nav/format/preset parity. |
 | `dead-code.test.mjs` | Unused functions, constants and CSS classes; stray logging, TODOs, control bytes and encoding damage; bundle size budgets. |
+| `security.test.mjs` | The Content-Security-Policy is strict where it can be and stays in step with what the code actually contacts; the reader frame is sandboxed; pinch zoom works. |
+| `reduced-motion.test.mjs` | The particle loop does not run and infinite CSS animations stop when the OS asks for reduced motion, including when that changes mid-session. |
 | `docs.test.mjs` | The README has not drifted from reality: every suite and npm script is documented, every CI job is explained, and no stale test count or removed suite is left behind. |
 | `diagnostics.test.mjs` | Every distinct upstream failure is reported, the logs never contain the API key or the user's query, and a dead AI path still degrades to the fallback. |
 | `integrity.test.mjs` | Cross-file drift: every `getElementById` target exists, every injected class is styled, every precached asset exists, nothing unescaped reaches an `innerHTML`. |
@@ -244,6 +246,57 @@ Run these after any change to `TAG_MAP`, `ANILIST_GENRES`, or a GraphQL query.
 `vercel.json` pins `maxDuration: 10` for `api/recommend.js` and `memory: 1024`.
 Hobby caps duration at 10s; raising it requires a paid plan.
 
+### Security headers
+
+Applied to every response, including `/api/*`:
+
+- **`script-src 'self'`** with no `unsafe-inline` and no `unsafe-eval`. The app
+  ships no inline script and calls no `eval`, so this costs nothing — and it is
+  the directive that matters, because the codebase assembles markup from strings
+  throughout. This is what turns an injected `<script>` into a refused one.
+- `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` — the three that
+  have no legitimate use here.
+- `frame-ancestors 'none'` plus `X-Frame-Options: DENY` for clickjacking.
+- `X-Content-Type-Options: nosniff` — the API returns JSON.
+- `Referrer-Policy: strict-origin-when-cross-origin` — the reader opens
+  third-party reading sites that would otherwise receive this origin.
+- `Permissions-Policy` disabling camera, microphone, geolocation, payment, USB
+  and the motion sensors.
+- HSTS, and `Cross-Origin-Opener-Policy: same-origin`.
+
+`style-src` is the one permissive directive: `index.html` carries about twenty
+`style=` attributes and `kindoku.js` emits three more. Moving those to classes is
+the better end state, but it needs visual regression testing this repository
+cannot do, and inline style is a materially smaller risk than inline script.
+`security.test.mjs` asserts `'unsafe-inline'` is only ever allowed for styles, and
+asserts those inline styles still exist so the day they are refactored the
+permissive directive gets removed.
+
+`frame-src https:` cannot be narrowed: AniList links a different reading site per
+title, so there is nothing to enumerate.
+
+### The reader frame
+
+The reader is the most dangerous thing in the app: it displays a different site's
+markup on every title. The iframe is sandboxed **without `allow-same-origin`**,
+which matters more than it looks — `allow-scripts` together with `allow-same-origin`
+is not a weaker sandbox, it is *no* sandbox. A sandboxed frame that is also
+same-origin runs scripts in this origin, so the framed page could read the saved
+library and the search history out of `localStorage` and rewrite the page. The
+trade is that the framed site loses its own storage and cookies, which a manga
+reader does not need.
+
+### Accessibility
+
+- **Pinch zoom works.** The viewport no longer carries `user-scalable=no` or
+  `maximum-scale=1`, which stopped people zooming and failed WCAG 1.4.4.
+- **Reduced motion is honoured**, live rather than once at load, so changing the
+  preference in system settings takes effect without a reload. Three background
+  orbs, a pulsing logo and up to 160 particles stop; the particle loop never
+  starts, which also removes a full-viewport canvas repainting at 60fps
+  indefinitely. The stylesheet override uses the universal selector so a new
+  animation is covered the day it is added.
+
 There is deliberately **no** rewrite rule. The app has no client-side routing —
 every view is switched in JavaScript from `index.html`, with no `pushState`, no
 hash routing and no `popstate` listener — so a catch-all SPA rewrite serves no
@@ -256,3 +309,10 @@ fails if a rewrite is added without a corresponding client-side route.
 be served from the edge. `sw.js` and the app shell are sent with
 `must-revalidate` — a long `max-age` on the shell is what pins users to one
 build.
+
+The service worker uses **navigation preload**. Navigations are network-first so
+a deploy is picked up, and without preload every page load waits for the worker
+to boot and then re-issues the request the browser has already made — the entire
+cost a service worker adds to a page load, paid every time. With preload the
+network response is already in flight by the time the worker handles the fetch.
+It degrades to a plain fetch where the API is unavailable.

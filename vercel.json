@@ -1,5 +1,56 @@
 {
+  "//": [
+    "Security headers apply to every response, including /api/*.",
+    "",
+    "script-src is strict: the app ships no inline script and calls no eval, so",
+    "'self' is the whole policy. That is the directive that actually matters —",
+    "it is what turns an injected <script> tag from a working exploit into a",
+    "refused one, and this codebase builds HTML from strings.",
+    "",
+    "style-src cannot be strict: index.html carries about twenty style=",
+    "attributes (theme swatches, background gradients, display:none defaults) and",
+    "kindoku.js emits three more in card markup. Refactoring those to classes is",
+    "the better end state but needs visual regression testing this repository has",
+    "no way to do. Inline style is a materially smaller risk than inline script,",
+    "so the trade is deliberate rather than accidental. budget.test.mjs asserts",
+    "'unsafe-inline' is only ever allowed for styles, never for scripts.",
+    "",
+    "frame-src is https: because the reader embeds whatever reading site AniList",
+    "linked, which is a different host per title and cannot be enumerated.",
+    "frame-ancestors 'none' stops this app being framed for clickjacking, which",
+    "is unrelated to what the app itself frames.",
+    "",
+    "img-src allows *.anilist.co because covers are served from s1..s4 depending",
+    "on the edge that produced them."
+  ],
   "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.anilist.co; frame-src https:; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), accelerometer=(), gyroscope=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        }
+      ]
+    },
     {
       "source": "/kindoku.(css|js)",
       "headers": [
