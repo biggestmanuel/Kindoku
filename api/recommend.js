@@ -21,6 +21,11 @@ const ENRICHMENT_CONCURRENCY = 4;
 const ANILIST_TIMEOUT_MS = 2_500;
 const ANILIST_RETRIES = 1;
 
+// How many titles a results page holds. Must equal the perPage of
+// ANILIST_DISCOVER_QUERY; `budget.test.mjs` asserts the two agree, so the top-up
+// cannot quietly build a page the query never asked for.
+const RESULT_PAGE_SIZE = 12;
+
 // A timeout below this is not worth issuing: `setTimeout(fn, 1)` aborts before
 // the connection is even attempted, so the request would burn the remainder of
 // its budget for nothing. Callers gate on MIN_QUERY_BUDGET_MS before starting.
@@ -1645,19 +1650,37 @@ function describeResponse(status, body) {
     return true;
   });
 
-  // ── Step 5: Deterministic AniList Recovery ────────────────────────────
+  // ── Step 5: Top up from AniList ────────────────────────────────────────
   // Never relax the user's selected genre.
-  // If AI candidates all fail verification, query AniList directly instead.
-  if (mode !== "search" && finalRecs.length === 0) {
+  //
+  // This started as a recovery path that only ran when the AI stage returned
+  // nothing, and that was not enough. A live model proposes a handful of titles
+  // for a genre-and-format combination, verification keeps the few that AniList
+  // actually has, and the page came back with one card where the direct engine
+  // returns twelve. Measured across repeated cold requests: 1 result from the AI
+  // stage against 12 from the deterministic query, for the same query.
+  //
+  // So the AI picks lead — they are the curated ones — and the deterministic
+  // results fill the rest of the grid. The user's genres and formats are applied
+  // to the top-up exactly as they are to the AI results, and `emitted` keeps a
+  // title from appearing twice.
+  if (mode !== "search") {
     // The same query already started in parallel at the top of the request, so
     // this resolves without another round trip and without needing budget that
     // the Groq call has already spent.
-    const directRecs = await directPromise;
-    finalRecs = directRecs.filter(
+    const directRecs = (await directPromise).filter(
       rec =>
         matchesRequestedGenres(rec.genre, requestedGenres) &&
         matchesRequestedFormats(rec.type, formats)
     );
+
+    for (const rec of directRecs) {
+      if (finalRecs.length >= RESULT_PAGE_SIZE) break;
+      const key = rec.title.toLowerCase();
+      if (emitted.has(key)) continue;
+      emitted.add(key);
+      finalRecs.push(rec);
+    }
   }
 
   return res.status(200).json({

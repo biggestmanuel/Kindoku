@@ -508,6 +508,126 @@ test('a genuine no-match is not reported as degraded', async () => {
     'AniList answered with an empty result set; that is not a degraded response');
 });
 
+test('a thin AI page is topped up from AniList', async () => {
+  // Reviving the AI stage quietly made results worse. Measured over repeated
+  // cold requests for one genre-and-format query: 1 title from the AI stage
+  // against 12 from the deterministic query. A model proposes a handful of
+  // titles, verification keeps the few AniList actually has, and the grid came
+  // back with a single card — while the answer was sitting in the parallel
+  // prefetch the whole time.
+  //
+  // The model here contributes exactly one *verified* title, because that is the
+  // discriminating case: recovery-only-when-empty does not fire when the page
+  // already has something in it, which is precisely the bug.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+
+  // Its own genre, because the AI recommendation cache lives in module scope
+  // exactly as it does on a warm instance, and two tests building the same query
+  // would share cached candidates.
+  const verified = 'Verified Real One';
+  const fillers = ['Filler One', 'Filler Two', 'Filler Three'];
+
+  const media = title => [{
+    title: { english: title, romaji: title, native: title },
+    description: 'A real story.',
+    coverImage: { large: null, medium: null },
+    averageScore: 80,
+    status: 'FINISHED',
+    genres: ['Horror'],
+    siteUrl: null,
+    format: 'MANGA',
+    countryOfOrigin: 'JP',
+    externalLinks: [],
+  }];
+
+  globalThis.fetch = async (url, init) => {
+    if (url === GROQ_URL) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: { content: JSON.stringify([{ title: verified, genre: ['Horror'] }]) },
+          }],
+        }),
+      };
+    }
+
+    // The verification lookup is by title and returns that one title. The
+    // discovery query, which is what the top-up uses, is not by title and so
+    // returns the whole page.
+    const body = String(init?.body || '');
+    if (body.includes(verified)) {
+      return { ok: true, status: 200, json: async () => ({ data: { Page: { media: media(verified) } } }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { Page: { media: fillers.map(media).flat() } } }),
+    };
+  };
+
+  const res = createRes();
+  await handler(
+    { method: 'POST', body: { mode: 'discover', genres: ['Horror'], formats: ['Manga'] }, headers: {}, socket: {} },
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  const titles = res.body.recommendations.map(r => r.title);
+  assert.equal(titles[0], verified,
+    'the AI pick should lead the page; it is the curated one');
+  assert.deepEqual(titles.slice(1), fillers,
+    'the page was left with one card where the deterministic query had three ' +
+    'more; the prefetched results were never used');
+});
+
+test('the top-up respects the selected genres and the page size', async () => {
+  // The top-up must not become a way around the user's filters, and must not
+  // build a longer page than the query asked for.
+  process.env.GROQ_API_KEY = 'gsk_test-key-for-tests';
+
+  // Its own genre, for the same cache-isolation reason as the test above. The
+  // media it returns deliberately does *not* carry the requested genre, so a
+  // top-up that ignored the user's filter would be visible.
+  const wrongGenre = [{
+    title: { english: 'Sports Only', romaji: 'Sports Only', native: 'x' },
+    description: 'Not what was asked for.',
+    coverImage: { large: null, medium: null },
+    averageScore: 80,
+    status: 'FINISHED',
+    genres: ['Sports'],
+    siteUrl: null,
+    format: 'MANGA',
+    countryOfOrigin: 'JP',
+    externalLinks: [],
+  }];
+
+  globalThis.fetch = async (url, init) => {
+    if (url === GROQ_URL) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '[{"title":"Invented","genre":["Mystery"]}]' } }],
+        }),
+      };
+    }
+    const media = wrongGenre;
+    return { ok: true, status: 200, json: async () => ({ data: { Page: { media } } }) };
+  };
+
+  const res = createRes();
+  await handler(
+    { method: 'POST', body: { mode: 'discover', genres: ['Mystery'], formats: ['Manga'] }, headers: {}, socket: {} },
+    res
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.recommendations, [],
+    'a title that does not carry the requested genre was added by the top-up');
+});
+
 test('the fallback still returns results when the AI path is broken', async () => {
   // The whole point of the fallback: a dead Groq must degrade, not break.
   process.env.GROQ_API_KEY = 'gsk_revoked-for-test';

@@ -146,6 +146,31 @@ test('the retry policy cannot multiply a timeout past the budget', () => {
   );
 });
 
+test('RESULT_PAGE_SIZE matches the discovery query page size', () => {
+  // The top-up fills a page up to RESULT_PAGE_SIZE, so if the query asks for a
+  // different number the grid is either short or built from titles that were
+  // never requested.
+  const declared = /const RESULT_PAGE_SIZE\s*=\s*(\d+)/.exec(apiSource)?.[1];
+  assert.ok(declared, 'RESULT_PAGE_SIZE is no longer a numeric literal; update this test');
+
+  const discovery = /const ANILIST_DISCOVER_QUERY\s*=\s*`([\s\S]*?)`/
+    .exec(apiSource)?.[1];
+  assert.ok(discovery, 'the discovery query is no longer a template literal');
+  const perPage = /perPage:\s*(\d+)/.exec(discovery)?.[1];
+  assert.ok(perPage, 'the discovery query has no perPage');
+
+  assert.equal(Number(declared), Number(perPage),
+    `RESULT_PAGE_SIZE is ${declared} but the discovery query asks for ${perPage} ` +
+    'titles per page');
+});
+
+test('the results page is never longer than one page', () => {
+  // A top-up that ignored the cap would return more titles than the query asked
+  // for, which the client then renders as an over-long page.
+  assert.match(apiSource, /if \(finalRecs\.length >= RESULT_PAGE_SIZE\) break;/,
+    'the top-up does not stop at the page size');
+});
+
 test('every model in the ladder is reachable within the budget', () => {
   // Each attempt is preceded by a sleep and is only started if at least
   // MIN_ATTEMPT_BUDGET_MS remains, so a ladder longer than the number of
