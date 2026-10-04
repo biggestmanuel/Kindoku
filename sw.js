@@ -12,8 +12,15 @@
 //
 // Bump CACHE_NAME whenever the app shell changes so existing installs pick up
 // the new build immediately.
+//
+// Raised to v4 when kindoku.js gained the degraded-catalogue message. It went
+// un-bumped through several earlier edits to the app shell, which is exactly the
+// drift the rule above exists to prevent — stale-while-revalidate means returning
+// visitors would have loaded the previous build first and corrected on the next
+// navigation. `service-worker.test.mjs` cannot catch this: it checks the precache
+// list is complete, not that the version was incremented.
 
-const CACHE_NAME = 'kindoku-cache-v3';
+const CACHE_NAME = 'kindoku-cache-v4';
 
 const PRECACHE_ASSETS = [
   './',

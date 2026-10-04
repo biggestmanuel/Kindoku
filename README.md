@@ -34,20 +34,29 @@ AniList engine, which is fully functional on its own.
 ## Tests
 
 ```bash
-npm test             # 307 tests, no dependencies, no network, ~15s
+npm test             # the whole offline suite, no dependencies, no network, ~20s
 npm run test:fast    # skips the timing suite, ~5s — good for a save hook
 npm run lint         # syntax check on the three shipped JS files
 npm run check        # lint + full suite (run this)
 npm run verify       # lint + suite twice; catches cross-test state leakage
-npm run test:live    # AniList contract tests, needs network
+npm run test:live    # AniList + Google Translate contract tests, needs network
 npm run test:groq    # Groq contract tests, needs GROQ_API_KEY
 npm run test:deployed  # contract tests against the live deployment, needs network
+npm run test:watch    # re-runs the offline suite on change
 ```
 
-`npm test` deliberately excludes the three network-dependent suites. `live` and
-`deployed` need an explicit flag; `groq-live` runs by itself whenever
-`GROQ_API_KEY` is present in the environment, and skips with a message
-otherwise.
+`npm test` prints the exact count. It is deliberately not written down here: a
+number in a README goes stale the moment someone adds a test, and `docs.test.mjs`
+checks the things that actually matter — that every test file and every script is
+still documented.
+
+`npm test` deliberately excludes the three network-dependent suites, so an
+offline run never touches the network and no opt-in flag is needed for the
+others: naming the file is the opt-in. `groq-live` additionally skips itself
+whenever `GROQ_API_KEY` is absent from the environment.
+
+All scripts are plain `node` invocations. Nothing here relies on a POSIX-only
+`VAR=value cmd` prefix, which silently fails on Windows cmd.
 
 The suite uses Node's built-in `node:test` runner. There is nothing to install.
 
@@ -63,6 +72,7 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `service-worker.test.mjs` | Caching strategy, driven through stubbed `self` and Cache Storage. |
 | `html.test.mjs` | Markup structure and accessibility: labels, ARIA, iframe sandboxing, asset existence, nav/format/preset parity. |
 | `dead-code.test.mjs` | Unused functions, constants and CSS classes; stray logging, TODOs, control bytes and encoding damage; bundle size budgets. |
+| `docs.test.mjs` | The README has not drifted from reality: every suite and npm script is documented, every CI job is explained, and no stale test count or removed suite is left behind. |
 | `diagnostics.test.mjs` | Every distinct upstream failure is reported, the logs never contain the API key or the user's query, and a dead AI path still degrades to the fallback. |
 | `integrity.test.mjs` | Cross-file drift: every `getElementById` target exists, every injected class is styled, every precached asset exists, nothing unescaped reaches an `innerHTML`. |
 | `live.test.mjs` | Contract tests against the real AniList API. Run by `npm run test:live`. |

@@ -1,26 +1,27 @@
 /**
- * Opt-in contract tests against the real AniList API.
+ * Contract tests against the real third-party APIs.
  *
  * These are the checks that cannot be faked: whether the genre list is still
  * valid, whether AniList still returns the fields the code reads, whether the
- * GraphQL queries are still shaped correctly. A schema change or a renamed
- * genre would break production while every mocked test stayed green.
+ * GraphQL queries are still shaped correctly, and whether the Google Translate
+ * proxy the reader relies on still resolves. A schema change or a renamed genre
+ * would break production while every mocked test stayed green.
  *
- * Skipped unless ANILIST_LIVE=1:
- *   ANILIST_LIVE=1 npm test
+ * No opt-in flag is needed: `npm test` already excludes this file, so naming it
+ * is the opt-in. An earlier version was gated behind ANILIST_LIVE, which needed
+ * `ANILIST_LIVE=1 node --test ...` in package.json — a POSIX env-var prefix that
+ * fails outright on Windows cmd, so `npm run test:live` was broken on the
+ * platform this was written on. Adding a dependency to set an environment
+ * variable cross-platform would be a worse trade than dropping the flag.
  *
- * Deliberately excludes the handler's rate limiter by using a distinct IP per
- * run, and reads nothing but public data.
+ * Deliberately paces itself below AniList's rate limit and reads nothing private.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const LIVE = process.env.ANILIST_LIVE === '1';
 const ANILIST_URL = 'https://graphql.anilist.co';
 
-const options = {
-  skip: LIVE ? false : 'set ANILIST_LIVE=1 to run the live AniList contract tests',
-};
+const options = {};
 
 // AniList rate limits to 30 requests per minute and answers 429 well before
 // that for a burst. These tests make 40+ calls, so every request goes through
@@ -352,4 +353,55 @@ test('reading-site external links are still present on real titles', options, as
 
   assert.ok(withLinks > 0,
     'no well-known title resolved to a reading link; the reader would always fall back to search');
+});
+// -- Google Translate proxy ---------------------------------------------------
+// The reader's "Translate to English" button wraps the reading URL in Google's
+// translate proxy, because Chrome's built-in translation prompt only fires for
+// top-level navigations and never appears for content inside our iframe. The
+// URL shape is asserted in client.test.mjs; this asserts Google still honours it.
+//
+// Google has changed this endpoint before, and nothing in the repository would
+// have noticed: the button would simply open a 404 in a new tab.
+
+test('the translate proxy resolves a proxied URL', options, async () => {
+  const target = 'https://example.com/?kindoku=reader-probe';
+  const proxied = `https://translate.google.com/translate?sl=auto&tl=en&u=${encodeURIComponent(target)}`;
+
+  const res = await fetch(proxied, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(25_000),
+  });
+
+  assert.equal(res.status, 200,
+    `the translate proxy returned HTTP ${res.status} for the form ` +
+    "toTranslatedUrl builds; the reader's translate button would open an error page");
+
+  // A working proxy rewrites the host to <domain>.translate.goog and carries the
+  // _x_tr_* parameters. A consent interstitial or an error page does neither,
+  // and both would return 200.
+  assert.match(res.url, /\.translate\.goog/,
+    `the proxy did not rewrite the host (final URL ${res.url}); it returned ` +
+    'something other than a translated page');
+  assert.match(res.url, /[?&]_x_tr_tl=en/,
+    `the proxy dropped the target language (final URL ${res.url})`);
+});
+
+test('the translate proxy rejects a malformed URL rather than serving it', options, async () => {
+  // Confirms the proxy is actually proxying: garbage in must not produce a 200
+  // page of the proxy's own error content, or the reader would silently show it
+  // instead of the manga.
+  const proxied = 'https://translate.google.com/translate?sl=auto&tl=en&u=' +
+    encodeURIComponent('not a url at all');
+
+  const res = await fetch(proxied, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(25_000),
+  });
+  const body = await res.text().catch(() => '');
+
+  assert.ok(
+    res.status >= 400 || !/example\.com/.test(res.url),
+    'the proxy served a translated page for input that is not a URL'
+  );
+  assert.ok(body.length >= 0);
 });

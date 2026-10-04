@@ -13,6 +13,16 @@ import { REPO_ROOT } from './harness.mjs';
 
 const swSource = readFileSync(resolve(REPO_ROOT, 'sw.js'), 'utf8');
 
+// Read the cache version out of the worker rather than repeating it. It used to
+// be spelled out in a dozen places here, so bumping it in sw.js broke the tests
+// instead of the tests following the bump — which is backwards, and is the same
+// mistake that let the version go un-bumped across several app-shell changes.
+const CACHE_NAME = (() => {
+  const match = swSource.match(/CACHE_NAME\s*=\s*'([^']+)'/);
+  assert.ok(match, 'CACHE_NAME is missing or is no longer a single-quoted literal');
+  return match[1];
+})();
+
 /**
  * In-memory Cache Storage.
  *
@@ -187,7 +197,7 @@ function assetRequest(path) {
 }
 
 test('the install handler precaches the app shell', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] }, PRECACHE_URLS);
+  const caches = createCaches({ [CACHE_NAME]: [] }, PRECACHE_URLS);
   const { self, listeners } = loadServiceWorker({ caches });
 
   let installed;
@@ -197,7 +207,7 @@ test('the install handler precaches the app shell', async () => {
   await installed;
 
   assert.equal(self.__skippedWaiting, true, 'a new build activates immediately');
-  const cached = caches.__stores.get('kindoku-cache-v3');
+  const cached = caches.__stores.get(CACHE_NAME);
   assert.equal(cached.size, PRECACHE_URLS.size);
   for (const url of PRECACHE_URLS) {
     assert.ok(cached.has(url), `${url} was not precached`);
@@ -207,7 +217,7 @@ test('the install handler precaches the app shell', async () => {
 test('a failing precache asset rejects the whole install', async () => {
   // Real `addAll` is atomic; a partially-populated shell must not activate.
   const incomplete = new Set([...PRECACHE_URLS].slice(0, 3));
-  const caches = createCaches({ 'kindoku-cache-v3': [] }, incomplete);
+  const caches = createCaches({ [CACHE_NAME]: [] }, incomplete);
   const { listeners } = loadServiceWorker({ caches });
 
   let installed;
@@ -221,7 +231,7 @@ test('activate deletes every cache except the current one', async () => {
   const caches = createCaches({
     'kindoku-cache-v1': [['/old', okResponse]],
     'kindoku-cache-v2': [['/older', okResponse]],
-    'kindoku-cache-v3': [['/current', okResponse]],
+    [CACHE_NAME]: [['/current', okResponse]],
   });
   const { self, listeners } = loadServiceWorker({ caches });
 
@@ -231,7 +241,7 @@ test('activate deletes every cache except the current one', async () => {
   }
   await activated;
 
-  assert.deepEqual([...caches.__stores.keys()], ['kindoku-cache-v3']);
+  assert.deepEqual([...caches.__stores.keys()], [CACHE_NAME]);
   assert.equal(self.__claimed, true, 'open tabs are taken over immediately');
 });
 
@@ -240,7 +250,7 @@ test('navigations are network-first so a deploy is picked up (regression)', () =
   // visitor could be pinned to an old build for as long as the cache entry lived.
   let fetchCalls = 0;
   const caches = createCaches({
-    'kindoku-cache-v3': [[`${origin}/index.html`, { ok: true, status: 200, stale: true }]],
+    [CACHE_NAME]: [[`${origin}/index.html`, { ok: true, status: 200, stale: true }]],
   });
   const { listeners } = loadServiceWorker({
     caches,
@@ -259,7 +269,7 @@ test('navigations are network-first so a deploy is picked up (regression)', () =
 test('a cached document is still served when the network is down', async () => {
   const cachedShell = { ok: true, status: 200, fromCache: true };
   const caches = createCaches({
-    'kindoku-cache-v3': [[`${origin}/index.html`, cachedShell]],
+    [CACHE_NAME]: [[`${origin}/index.html`, cachedShell]],
   });
   const { listeners } = loadServiceWorker({
     caches,
@@ -274,7 +284,7 @@ test('a cached document is still served when the network is down', async () => {
 
 test('navigations fall back to the root precache entry too', async () => {
   const cachedRoot = { ok: true, status: 200, fromRoot: true };
-  const caches = createCaches({ 'kindoku-cache-v3': [[`${origin}/`, cachedRoot]] });
+  const caches = createCaches({ [CACHE_NAME]: [[`${origin}/`, cachedRoot]] });
   const { listeners } = loadServiceWorker({
     caches,
     fetchImpl: async () => {
@@ -288,7 +298,7 @@ test('navigations fall back to the root precache entry too', async () => {
 
 test('static assets are served from cache and refreshed in the background', async () => {
   const cachedCss = { ok: true, status: 200, fromCache: true };
-  const caches = createCaches({ 'kindoku-cache-v3': [[`${origin}/kindoku.css`, cachedCss]] });
+  const caches = createCaches({ [CACHE_NAME]: [[`${origin}/kindoku.css`, cachedCss]] });
   let fetchCalls = 0;
   const { listeners } = loadServiceWorker({
     caches,
@@ -305,7 +315,7 @@ test('static assets are served from cache and refreshed in the background', asyn
 });
 
 test('an uncached asset falls through to the network', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] });
+  const caches = createCaches({ [CACHE_NAME]: [] });
   const { listeners } = loadServiceWorker({
     caches,
     fetchImpl: async () => ({ ok: true, status: 200, fresh: true, clone: () => okResponse }),
@@ -316,7 +326,7 @@ test('an uncached asset falls through to the network', async () => {
 });
 
 test('an offline uncached asset resolves to undefined rather than throwing', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] });
+  const caches = createCaches({ [CACHE_NAME]: [] });
   const { listeners } = loadServiceWorker({
     caches,
     fetchImpl: async () => {
@@ -329,7 +339,7 @@ test('an offline uncached asset resolves to undefined rather than throwing', asy
 });
 
 test('API requests always go to the network and are never cached', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] });
+  const caches = createCaches({ [CACHE_NAME]: [] });
   let fetchCalls = 0;
   const { listeners } = loadServiceWorker({
     caches,
@@ -348,13 +358,13 @@ test('API requests always go to the network and are never cached', async () => {
 
   assert.equal(fetchCalls, 1);
   assert.deepEqual(response.recommendations, []);
-  assert.equal(caches.__stores.get('kindoku-cache-v3').size, 0, 'nothing was written to the cache');
+  assert.equal(caches.__stores.get(CACHE_NAME).size, 0, 'nothing was written to the cache');
 });
 
 test('a cached API response is never served', async () => {
   // Even if something poisoned the cache, recommendations must always be fresh.
   const caches = createCaches({
-    'kindoku-cache-v3': [[`${origin}/api/recommend`, { ok: true, recommendations: ['stale'] }]],
+    [CACHE_NAME]: [[`${origin}/api/recommend`, { ok: true, recommendations: ['stale'] }]],
   });
   let fetchCalls = 0;
   const { listeners } = loadServiceWorker({
@@ -377,7 +387,7 @@ test('a cached API response is never served', async () => {
 });
 
 test('a non-GET request outside /api/ is left to the browser', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] });
+  const caches = createCaches({ [CACHE_NAME]: [] });
   const { listeners } = loadServiceWorker({ caches });
 
   const responded = wasIntercepted(listeners, {
@@ -389,7 +399,7 @@ test('a non-GET request outside /api/ is left to the browser', async () => {
 });
 
 test('a non-GET API request is passed straight through, never cached', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] });
+  const caches = createCaches({ [CACHE_NAME]: [] });
   let fetchCalls = 0;
   const { listeners } = loadServiceWorker({
     caches,
@@ -406,11 +416,11 @@ test('a non-GET API request is passed straight through, never cached', async () 
   });
   assert.equal(fetchCalls, 1, 'the request still reaches the network');
   assert.equal(response.status, 200);
-  assert.equal(caches.__stores.get('kindoku-cache-v3').size, 0);
+  assert.equal(caches.__stores.get(CACHE_NAME).size, 0);
 });
 
 test('cross-origin requests are not intercepted or cached', async () => {
-  const caches = createCaches({ 'kindoku-cache-v3': [] });
+  const caches = createCaches({ [CACHE_NAME]: [] });
   const { listeners } = loadServiceWorker({ caches });
 
   const responded = wasIntercepted(listeners, {
@@ -419,7 +429,7 @@ test('cross-origin requests are not intercepted or cached', async () => {
     mode: 'cors',
   });
   assert.equal(responded, false, "font requests are the browser/CDN's business");
-  assert.equal(caches.__stores.get('kindoku-cache-v3').size, 0);
+  assert.equal(caches.__stores.get(CACHE_NAME).size, 0);
 });
 
 test('the cache version is bumped past the stale build', () => {

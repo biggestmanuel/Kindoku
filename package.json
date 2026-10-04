@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node --test \"tests/!(deployed|live|groq-live).test.mjs\"",
     "test:fast": "node --test --test-skip-pattern=\"^timing:\" \"tests/!(deployed|live|groq-live).test.mjs\"",
-    "test:live": "ANILIST_LIVE=1 node --test tests/live.test.mjs",
+    "test:live": "node --test tests/live.test.mjs",
     "test:groq": "node --test tests/groq-live.test.mjs",
     "test:deployed": "node --test tests/deployed.test.mjs",
     "test:watch": "node --test --watch \"tests/!(deployed|live|groq-live).test.mjs\"",
