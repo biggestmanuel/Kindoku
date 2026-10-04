@@ -4,6 +4,12 @@ A manga / manhwa / manhua / light-novel recommender. Static PWA front end, one
 Vercel serverless function for recommendations, AniList for metadata, Groq for
 candidate titles.
 
+> **Working on this repo?** Read [`AGENTS.md`](./AGENTS.md) first. It records the
+> mistakes this project has already made the expensive way — the shell edit that
+> silently corrupted 16 object keys, the `git checkout` that discarded a rewrite,
+> the `vercel.json` comment that stopped every deploy for 13 minutes — and the
+> guard that now stops each one. Agents load it automatically.
+
 ## Layout
 
 | Path | Purpose |

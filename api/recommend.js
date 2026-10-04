@@ -108,7 +108,6 @@ const TAG_MAP = {
   "demons": "Demons",
   "monsters": "Kaiju",
   "virtual reality": "Virtual World",
-  "modern day": null,
 };
 
 // UI tropes AniList has no usable tag for. Kept explicit so the gap is visible

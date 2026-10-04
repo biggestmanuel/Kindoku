@@ -243,6 +243,72 @@ test('the shipped files contain no CR at all', () => {
   }
 });
 
+test('no object key has been emptied out', () => {
+  // The signature of a botched regex replace over source.
+  //
+  // A PowerShell `-replace` run once turned 16 object keys — STATUS_MAP,
+  // FORMAT_MAP, `error:`, the HTTP method names — into `""`. The file stayed
+  // valid JavaScript, so `node --check` passed and the damage was only visible
+  // as wrong behaviour. An empty string used as a key is never intentional here.
+  for (const name of sourceFiles) {
+    const text = readFileSync(resolve(REPO_ROOT, name), 'utf8');
+    const emptied = [...text.matchAll(/(^|[{,]\s*)""\s*:/g)];
+    assert.equal(emptied.length, 0,
+      `${name} uses "" as an object key in ${emptied.length} place(s); a ` +
+      'replace has almost certainly emptied real keys');
+  }
+});
+
+test('the named lookup maps still have their keys', () => {
+  // A structural check on the maps the same corruption hit. Collapsing their
+  // keys into one "" entry would still parse, and would still satisfy any test
+  // that only checks the map exists.
+  const text = readFileSync(resolve(REPO_ROOT, 'api/recommend.js'), 'utf8');
+
+  for (const [name, minimum] of [
+    ['STATUS_MAP', 5],   // AniList's five media statuses
+    ['FORMAT_MAP', 3],   // MANGA, NOVEL, ONE_SHOT
+    ['TAG_MAP', 15],     // the UI tags it maps onto AniList genres
+  ]) {
+    const block = new RegExp(`const ${name}\\s*=\\s*\\{([\\s\\S]*?)\\n\\}`).exec(text);
+    assert.ok(block, `${name} is no longer a plain object literal; update this test`);
+
+    const keys = [...block[1].matchAll(/^\s{2}([A-Za-z_$][\w$]*|"[^"]+"):/gm)].map(m => m[1]);
+    assert.ok(keys.length >= minimum,
+      `${name} has ${keys.length} keys, expected at least ${minimum}. Keys: ${keys.join(', ')}`);
+    assert.ok(keys.every(k => k !== '""'),
+      `${name} contains an emptied key`);
+  }
+});
+
+test('the tag map still resolves every non-dead UI tag', () => {
+  // The map and the dead set are two halves of one decision. Shrinking either
+  // silently changes what the UI offers, with no error anywhere.
+  const text = readFileSync(resolve(REPO_ROOT, 'api/recommend.js'), 'utf8');
+
+  const dead = /const DEAD_TAGS\s*=\s*new Set\(\[([\s\S]*?)\]\)/.exec(text);
+  assert.ok(dead, 'DEAD_TAGS is no longer a Set literal');
+  const deadTags = [...dead[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+
+  const map = /const TAG_MAP\s*=\s*\{([\s\S]*?)\n\};/.exec(text);
+  assert.ok(map, 'TAG_MAP is no longer an object literal');
+  const mapped = [...map[1].matchAll(/^\s*"([^"]+)":/gm)].map(m => m[1]);
+
+  const overlap = mapped.filter(t => deadTags.includes(t));
+  assert.deepEqual(overlap, [],
+    `these tags are both mapped and dead, so mapTag cannot decide: ${overlap.join(', ')}`);
+
+  assert.ok(deadTags.length > 0, 'DEAD_TAGS is empty, which would resurrect dead tags');
+});
+
+test('the emptied-key guard catches real damage', () => {
+  // The guard above is only worth having if it fires on the shape of the actual
+  // corruption: a botched replace turning named keys into "".
+  const damaged = `const STATUS_MAP = {\n  "": "Completed",\n  "": "Ongoing",\n};`;
+  assert.ok(/(^|[{,]\s*)""\s*:/m.test(damaged),
+    'the emptied-key pattern no longer matches the damage it is meant to catch');
+});
+
 test('the box-drawing comment separators are intact', () => {
   // These separators are the file's section markers. If they have degraded to
   // mojibake the structure is still readable but the damage is real.

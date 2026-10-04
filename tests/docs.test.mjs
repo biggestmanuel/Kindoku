@@ -16,7 +16,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -77,6 +77,36 @@ test('every npm script is documented in the README', () => {
       `the "${name}" script is not documented. A script nobody knows about is ` +
       'a script nobody runs.'
     );
+  }
+});
+
+test('AGENTS.md exists and the README points at it', () => {
+  // The file is loaded automatically by agents and is the only thing standing
+  // between a new session and the mistakes this project has already paid for.
+  // If it is deleted, or stops being linked, nobody finds out from the tests.
+  const agentsPath = resolve(REPO_ROOT, 'AGENTS.md');
+  assert.ok(existsSync(agentsPath),
+    'AGENTS.md is missing; it records the failures this project has already ' +
+    'made the expensive way and is the guard against repeating them');
+
+  const agents = readFileSync(agentsPath, 'utf8');
+  assert.ok(agents.length > 2000, 'AGENTS.md is suspiciously short');
+  assert.ok(README.includes('AGENTS.md'),
+    'the README does not mention AGENTS.md, so a human contributor will not ' +
+    'find it');
+
+  // The hazards that actually occurred, so the file cannot be truncated into
+  // something generic without failing.
+  for (const hazard of [
+    'git checkout',      // discarded an uncommitted rewrite
+    'replace',           // corrupted 16 object keys
+    'vercel.json',       // a comment key stopped every deploy
+    'max_tokens',        // reasoning models truncate their answer
+    'allow-same-origin', // defeats the iframe sandbox
+  ]) {
+    assert.ok(agents.includes(hazard),
+      `AGENTS.md no longer mentions "${hazard}", which is one of the specific ` +
+      'failures it exists to prevent');
   }
 });
 
