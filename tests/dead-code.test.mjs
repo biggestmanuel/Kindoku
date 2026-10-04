@@ -6,7 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { REPO_ROOT } from './harness.mjs';
 
@@ -218,9 +218,25 @@ test('line endings are normalised by .gitattributes, not by the checkout', () =>
 });
 
 test('the shipped files contain no CR at all', () => {
-  // With .gitattributes pinning eol=lf, a CR anywhere in a source file is a
+  // With .gitattributes pinning eol=lf, a CR anywhere in a text file is a
   // genuine defect rather than a line ending, so this can be strict.
-  for (const name of [...sourceFiles, 'package.json', 'README.md', '.gitattributes']) {
+  //
+  // Covers the test suite too, not just the shipped code. A CRLF once slipped
+  // into tests/live.test.mjs from a Windows append, git warned about it on
+  // commit, and the warning was the only thing that noticed.
+  const tracked = [
+    ...sourceFiles,
+    ...readdirSync(resolve(REPO_ROOT, 'tests'))
+      .filter(name => name.endsWith('.mjs'))
+      .map(name => `tests/${name}`),
+    'package.json',
+    'README.md',
+    '.gitattributes',
+    '.env.example',
+    '.github/workflows/ci.yml',
+  ];
+
+  for (const name of tracked) {
     const text = readFileSync(resolve(REPO_ROOT, name), 'utf8');
     const crs = (text.match(/\r/g) || []).length;
     assert.equal(crs, 0, `${name} contains ${crs} CR characters`);
