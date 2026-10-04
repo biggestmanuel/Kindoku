@@ -39,10 +39,27 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // whether the code is correct.
 let ipCounter = 0;
 
+// AniList allows 30 requests per minute and slows to the point of timing out
+// well before that when requests arrive together: twenty concurrent identical
+// queries were measured aborting at 2.5s. A cold request fans out to several
+// AniList calls at once (the parallel prefetch, AI verification, enrichment),
+// so firing this file's requests back to back makes the third party fail and
+// then asserts the app returned an empty page. That reports a rate limit as an
+// application fault.
+let lastCallAt = 0;
+const MIN_SPACING_MS = 1_200;
+
+async function pace() {
+  const wait = lastCallAt + MIN_SPACING_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastCallAt = Date.now();
+}
+
 async function request(body, { attempts = 4 } = {}) {
   let last = { status: 0, headers: new Headers(), text: '', json: null };
 
   for (let attempt = 0; attempt < attempts; attempt++) {
+    await pace();
     ipCounter += 1;
     const res = await fetch(`${DEPLOY_URL}/api/recommend`, {
       method: 'POST',

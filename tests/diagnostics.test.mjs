@@ -474,6 +474,40 @@ test('pages do not share a cached AI recommendation', async () => {
   assert.equal(groqCall, 2, 'the second page reused the first page\'s cache entry');
 });
 
+test('an unreachable AniList is reported as degraded, not as "no matches"', async () => {
+  // Both cases produce an empty array. Reporting a catalogue outage as
+  // "nothing matches your filters" tells the user their query is wrong when the
+  // question was never actually asked.
+  delete process.env.GROQ_API_KEY;
+  globalThis.fetch = async () => {
+    throw Object.assign(new Error('fetch failed'), { name: 'TypeError' });
+  };
+
+  const res = await invoke({ mode: 'search', searchInput: 'Degraded Probe' });
+  assert.equal(res.statusCode, 200, 'an upstream outage must not surface as a 5xx');
+  assert.deepEqual(res.body.recommendations, []);
+  assert.equal(res.body.exhausted, true);
+  assert.equal(res.body.degraded, true,
+    'AniList never answered, so the empty result is not evidence of no matches');
+});
+
+test('a genuine no-match is not reported as degraded', async () => {
+  // The distinction only means something if it is absent when AniList answered
+  // normally and simply had nothing.
+  delete process.env.GROQ_API_KEY;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ data: { Page: { media: [] } } }),
+  });
+
+  const res = await invoke({ mode: 'search', searchInput: 'Genuinely Nothing Here' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.exhausted, true);
+  assert.equal(res.body.degraded, false,
+    'AniList answered with an empty result set; that is not a degraded response');
+});
+
 test('the fallback still returns results when the AI path is broken', async () => {
   // The whole point of the fallback: a dead Groq must degrade, not break.
   process.env.GROQ_API_KEY = 'gsk_revoked-for-test';

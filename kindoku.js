@@ -969,7 +969,9 @@ async function submitSearch(overrideQuery = null) {
     if (!request.isCurrent()) return;
 
     if (!data.recommendations.length) {
-      showEmptyResults(`No titles matched "${query}". Try searching for another keyword.`);
+      showEmptyResults(data.degraded
+        ? 'Could not reach the manga catalogue. Please try again in a moment.'
+        : `No titles matched "${query}". Try searching for another keyword.`);
       return;
     }
 
@@ -1020,7 +1022,13 @@ async function submitDiscover() {
     if (!request.isCurrent()) return;
 
     if (!data.recommendations.length) {
-      showEmptyResults('No titles matched this specific criteria mix. Try adjusting or expanding tags.');
+      // "Nothing matched" and "the catalogue was unreachable" are different
+      // answers and need different advice. Telling someone their criteria are
+      // wrong when the upstream simply never answered sends them off loosening
+      // filters that were fine.
+      showEmptyResults(data.degraded
+        ? 'Could not reach the manga catalogue. Please try again in a moment.'
+        : 'No titles matched this specific criteria mix. Try adjusting or expanding tags.');
       return;
     }
 

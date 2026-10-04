@@ -659,6 +659,14 @@ async function runCachedAnilistQuery(cacheKey, query, variables, budget) {
     return media;
   }
 
+  // Everything below here failed: a timeout, a 429 that outlasted its retries, a
+  // non-JSON body, or a budget too spent to issue the call.
+  //
+  // Marked on the budget so the handler can tell "AniList has nothing matching
+  // this" apart from "AniList never answered". Both produce an empty array, and
+  // reporting the first as the second tells a user their query is wrong when the
+  // upstream is actually down.
+  if (budget) budget.anilistFailed = true;
   return [];
 }
 
@@ -1524,11 +1532,16 @@ function describeResponse(status, body) {
     // fault. Returning 500 made a legitimate empty result indistinguishable
     // from a crash in every error tracker, and pushed the browser into the
     // generic "request failed" path instead of the empty-state UI.
+    //
+    // `degraded` separates the two ways this can come up empty. Without it the
+    // client tells the user nothing matches their filters when the truth is that
+    // AniList was unreachable and the question was never really asked.
     return res.status(200).json({
       recommendations: [],
       model: "AniList Direct Engine",
       isExact,
       exhausted: true,
+      degraded: Boolean(budget.anilistFailed),
     });
   }
 
