@@ -89,6 +89,26 @@ async function request(body, { attempts = 4 } = {}) {
   return last;
 }
 
+/**
+ * Runs `fn` and retries while the deployment reports `degraded`.
+ *
+ * `degraded` is the endpoint saying its AniList calls did not complete, so the
+ * empty result reflects AniList's rate limit rather than the code under test.
+ * Retrying on that flag is not papering over a regression — an empty result the
+ * server is confident about carries `degraded: false` and is reported as a
+ * failure immediately, which is what caught the pagination and constraint bugs
+ * this suite exists to find.
+ */
+async function withoutDegraded(fn, { tries = 3 } = {}) {
+  let result;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    result = await fn();
+    if (!result.json?.degraded) return result;
+    if (attempt < tries - 1) await sleep(2_000 + attempt * 2_000);
+  }
+  return result;
+}
+
 async function postJson(path) {
   const res = await fetch(`${DEPLOY_URL}${path}`, {
     signal: AbortSignal.timeout(20_000),
@@ -176,14 +196,15 @@ test('deployed: an exact query does not trigger a similarity list', { timeout: T
 // ── Discover contract ─────────────────────────────────────────────────────
 
 test('deployed: discover returns titles matching every selected genre', { timeout: TEST_TIMEOUT_MS }, async () => {
-  const { status, json } = await request({
+  const { status, json } = await withoutDegraded(() => request({
     mode: 'discover',
     genres: ['Action', 'Fantasy'],
     formats: ['Manga'],
-  });
+  }));
   assert.equal(status, 200);
   assertWellFormed(json.recommendations, 'discover');
-  assert.ok(json.recommendations.length > 0, 'the query returned nothing');
+  assert.ok(json.recommendations.length > 0,
+    `the query returned nothing (degraded=${json.degraded})`);
   for (const rec of json.recommendations) {
     for (const genre of ['Action', 'Fantasy']) {
       assert.ok(rec.genre.includes(genre),
@@ -203,12 +224,13 @@ test('deployed: discover honours the selected format', { timeout: TEST_TIMEOUT_M
 test('deployed: a genre at position 5+ still matches', { timeout: TEST_TIMEOUT_MS }, async () => {
   // The original code sliced AniList's genre list to 4 before matching, so any
   // title whose only "Sports" tag was 5th or later failed verification.
-  const { json } = await request({
+  const { json } = await withoutDegraded(() => request({
     mode: 'discover',
     genres: ['Action', 'Sports'],
     formats: ['Manga'],
-  });
-  assert.ok(json.recommendations.length > 0, 'the query returned nothing at all');
+  }));
+  assert.ok(json.recommendations.length > 0,
+    `the query returned nothing (degraded=${json.degraded})`);
   const withSports = json.recommendations.filter(r => r.genre.includes('Sports'));
   assert.ok(withSports.length > 0,
     'no returned title carries Sports; the genre-truncation bug may be present');
@@ -217,16 +239,16 @@ test('deployed: a genre at position 5+ still matches', { timeout: TEST_TIMEOUT_M
 test('deployed: a prose prompt does not sink a preset-style query', { timeout: TEST_TIMEOUT_MS }, async () => {
   // Every 1-click preset ships a prose prompt. The old engine ANDed it into
   // AniList's literal search, which matched nothing, and the user saw an error.
-  const { status, json } = await request({
+  const { status, json } = await withoutDegraded(() => request({
     mode: 'discover',
     genres: ['Action', 'Fantasy'],
     tags: ['Tower Climbing'],
     formats: ['Manhwa'],
     customInput: 'Tower climbing with unique awakening and system quests',
-  });
+  }));
   assert.equal(status, 200, `preset-style query returned ${status}`);
   assert.ok(json.recommendations.length > 0,
-    'a preset-style query returned nothing; constraint relaxation is not working');
+    `a preset-style query returned nothing (degraded=${json.degraded})`);
   for (const rec of json.recommendations) {
     assert.equal(rec.type, 'Manhwa', `"${rec.title}" is ${rec.type}, not Manhwa`);
   }
@@ -235,17 +257,27 @@ test('deployed: a prose prompt does not sink a preset-style query', { timeout: T
 test('deployed: paging returns titles that are not already on screen', { timeout: TEST_TIMEOUT_MS }, async () => {
   // The old discovery query had no pagination at all, so "Load More" re-served
   // the identical twelve titles.
-  const first = await request({ mode: 'discover', genres: ['Action'], formats: ['Manga'], page: 1 });
-  const second = await request({
+  const first = await withoutDegraded(() =>
+    request({ mode: 'discover', genres: ['Action'], formats: ['Manga'], page: 1 }));
+  const exclude = first.json.recommendations.map(r => r.title);
+  const second = await withoutDegraded(() => request({
     mode: 'discover',
     genres: ['Action'],
     formats: ['Manga'],
     page: 2,
-    exclude: first.json.recommendations.map(r => r.title),
-  });
+    exclude,
+  }));
 
-  assert.ok(second.json.recommendations.length > 0, 'page 2 returned nothing');
-  const firstTitles = new Set(first.json.recommendations.map(r => r.title.toLowerCase()));
+  assert.ok(second.json.recommendations.length > 0, () =>
+    `page 2 returned nothing. Page 1 gave ${exclude.length} titles to exclude. ` +
+    `status=${second.status} exhausted=${second.json.exhausted} ` +
+    `degraded=${second.json.degraded} model=${second.json.model}. ` +
+    (second.json.degraded
+      ? 'AniList did not answer, so this is a rate limit rather than a ' +
+        'pagination fault — re-run when the catalogue is calmer.'
+      : 'AniList answered and had nothing left, which is a pagination fault.'));
+
+  const firstTitles = new Set(exclude.map(t => t.toLowerCase()));
   const repeated = second.json.recommendations.filter(r => firstTitles.has(r.title.toLowerCase()));
   assert.equal(repeated.length, 0,
     `page 2 repeated ${repeated.length} titles already on screen: ${repeated.map(r => r.title).join(', ')}`);
