@@ -218,6 +218,16 @@ Run these after any change to `TAG_MAP`, `ANILIST_GENRES`, or a GraphQL query.
   exactly as they do in a warm serverless instance. `api-handler.test.mjs` loads
   a fresh module instance per test via a cache-busting query string; pass an
   explicit `handler` when a test needs to exercise cross-request behaviour.
+- **The rate limiter is a courtesy throttle, not a security control.** It caps a
+  burst from one client while a warm instance is serving (31 in-process requests
+  return 429 at the 31st), but its state is a module-scope `Map` and Vercel
+  recycles instances, so a cold start begins empty. Measured against production:
+  40 sequential requests from one address returned 40 × 200 and no 429. Real
+  enforcement needs state that outlives an instance — Vercel KV, Upstash, or the
+  platform firewall — and this project adds no dependencies by design. Do not
+  describe it as protection from abuse, and do not raise
+  `RATE_LIMIT_MAX_REQUESTS` expecting it to help; a caller who rotates address or
+  waits out the window is unaffected by the value.
 - Anything that renders markup must go through `escapeHtml`. The
   `integrity.test.mjs` sink check enforces this across the whole file.
 - Do not write raw control characters into a source file. Build them with

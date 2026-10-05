@@ -52,8 +52,15 @@ function createRes() {
   return res;
 }
 
-function createReq({ method = 'POST', body = {}, ip } = {}) {
-  return { method, body, headers: { 'x-forwarded-for': ip }, socket: {} };
+// `headers` replaces the default entirely, so a test can supply the exact header
+// shape Vercel or a forger produces. Passing `ip` still works for the common case.
+function createReq({ method = 'POST', body = {}, ip, headers } = {}) {
+  return {
+    method,
+    body,
+    headers: headers ?? { 'x-forwarded-for': ip },
+    socket: {},
+  };
 }
 
 let ipCounter = 0;
@@ -62,13 +69,13 @@ function nextIp() {
   return `203.0.${Math.floor(ipCounter / 250)}.${(ipCounter % 250) + 1}`;
 }
 
-// Everything except `method` / `ip` / `handler` is treated as the request body.
-// Pass an explicit `handler` to exercise cross-request behaviour such as
-// caching; otherwise a fresh module instance is used per call.
-async function invoke({ method = 'POST', ip, handler, ...body } = {}) {
+// Everything except `method` / `ip` / `headers` / `handler` is treated as the
+// request body. Pass an explicit `handler` to exercise cross-request behaviour
+// such as caching; otherwise a fresh module instance is used per call.
+async function invoke({ method = 'POST', ip, headers, handler, ...body } = {}) {
   const res = createRes();
   const run = handler || (await freshHandler());
-  await run(createReq({ method, body, ip: ip || nextIp() }), res);
+  await run(createReq({ method, body, ip: ip || nextIp(), headers }), res);
   return res;
 }
 
@@ -194,6 +201,63 @@ test('rate limits after 30 requests from one IP', async () => {
   assert.equal(statuses.slice(0, 30).every(s => s !== 429), true, 'first 30 must pass');
   assert.equal(statuses[30], 429);
   assert.equal(statuses[31], 429);
+});
+
+test('a caller cannot escape the limiter by forging x-forwarded-for', async () => {
+  // The limiter used to key on the FIRST x-forwarded-for entry, which is the
+  // value the caller supplies. Rotating it minted a fresh bucket per request, so
+  // the limiter could be defeated by a header the caller fully controls.
+  //
+  // Proven in-process by reverting getClientIp: this test fails against the old
+  // implementation and passes against the new one. It cannot be demonstrated
+  // against production, because the limiter does not engage there at all — see
+  // the note above isRateLimited in api/recommend.js.
+  const handler = await freshHandler();
+  mockFetch({ anilist: () => jsonResponse({ data: { Page: { media: [] } } }) });
+
+  const statuses = [];
+  for (let i = 0; i < 32; i++) {
+    // A different forged prefix on every request, with the genuine address last —
+    // the shape Vercel produces when a client prepends its own header.
+    const forged = `10.${Math.floor(i / 250)}.${(i % 250) + 1}`;
+    const res = await invoke({
+      handler,
+      mode: 'discover',
+      formats: ['Manga'],
+      headers: { 'x-forwarded-for': `${forged}, 198.51.100.77` },
+    });
+    statuses.push(res.statusCode);
+  }
+
+  assert.equal(statuses.slice(0, 30).every(s => s !== 429), true,
+    'rotating a forged prefix must not reset the window');
+  assert.equal(statuses[30], 429,
+    'the 31st request must be limited despite a fresh forged prefix each time');
+});
+
+test('the address Vercel populates wins over any client-supplied header', async () => {
+  // Two clients, distinct forged prefixes, but the same x-vercel-forwarded-for:
+  // they are one client as far as the limiter is concerned. If the spoofable
+  // header were still consulted first, both would be admitted independently.
+  const handler = await freshHandler();
+  mockFetch({ anilist: () => jsonResponse({ data: { Page: { media: [] } } }) });
+
+  const statuses = [];
+  for (let i = 0; i < 32; i++) {
+    const res = await invoke({
+      handler,
+      mode: 'discover',
+      formats: ['Manga'],
+      headers: {
+        'x-vercel-forwarded-for': '203.0.113.5',
+        'x-forwarded-for': `10.9.9.${i}`,
+      },
+    });
+    statuses.push(res.statusCode);
+  }
+
+  assert.equal(statuses[30], 429,
+    'a changing x-forwarded-for must not outvote a constant x-vercel-forwarded-for');
 });
 
 test('a rate-limited request still returns the error message the UI shows', async () => {

@@ -32,11 +32,17 @@ const CANONICAL_GENRES = new Set([
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// The deployment rate limits to 30 requests per minute and this file makes more
-// than that, so every request appears to come from a distinct client and a 429
-// is retried rather than reported as a contract failure. The limiter is shared
-// across everyone hitting the app, so being rate limited says nothing about
+// The handler rate limits to 30 requests per minute, and this file makes more
+// requests than that, so each one presents a distinct client address and a 429
+// is retried rather than reported as a contract failure. A 429 says nothing about
 // whether the code is correct.
+//
+// Measured caveat, so nobody trusts this more than it deserves: the limiter's
+// state is a Map in module scope and Vercel recycles serverless instances, so in
+// practice it does not engage — 40 sequential requests from one address returned
+// 40 x 200. These headers are therefore harmless rather than necessary, and they
+// are not a demonstration that client-supplied addresses are honoured: see
+// getClientIp, which now prefers the address Vercel populates.
 let ipCounter = 0;
 
 // AniList allows 30 requests per minute and slows to the point of timing out

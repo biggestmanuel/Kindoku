@@ -180,6 +180,15 @@ someone tried to run the script. `docs.test.mjs` now rejects the pattern.
 - **The handler keeps caches and a rate-limit table in module scope**, exactly as
   a warm serverless instance does. Tests that build the same query share cached
   candidates — use a distinct genre per test rather than assuming isolation.
+- **Measure a control's behaviour on the deployment before believing a comment
+  about it.** The rate limiter was documented as protection from abuse. Probing
+  production showed it never fires there - 40 sequential requests from one address
+  returned 40 x 200 - because the state is a module-scope Map and Vercel recycles
+  instances. Two earlier probes were misleading in opposite directions: a spoofed
+  header appeared to be honoured, and a header-preference test appeared to prove
+  otherwise, when in fact the limiter was not engaging for anybody. Only a probe
+  with no header manipulation at all separated "keyed on a forgeable value" from
+  "not enforcing". See `isRateLimited` in `api/recommend.js`.
 - **`maxDuration` is 10** because the Vercel plan is Hobby. Timing constants in
   `api/recommend.js` and `vercel.json` are asserted to agree by `budget.test.mjs`.
 - **No client-side routing.** There is no `pushState`, no hash routing, no

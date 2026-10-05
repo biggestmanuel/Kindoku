@@ -212,13 +212,42 @@ function matchesRequestedFormats(type, formats) {
   return formats.includes(type);
 }
 
+// Identifies the client for rate limiting.
+//
+// Order matters: the first source that can be forged by the caller must not win.
+//
+//   1. x-vercel-forwarded-for  populated by Vercel from the connecting socket
+//   2. the LAST x-forwarded-for entry, not the first. A client that sends its own
+//      header has its value prepended, so a spoofed prefix sits at index 0 while
+//      the address Vercel observed ends up last.
+//   3. x-real-ip, then the socket address, for local and non-Vercel hosting.
+//
+// The previous version took the FIRST x-forwarded-for entry, which is exactly the
+// value a caller controls, so rotating it minted a fresh bucket per request and
+// defeated the limiter outright.
+//
+// Note what cannot be claimed here: production does not demonstrate the old bug,
+// because it does not enforce the limit for anyone. See the note above
+// isRateLimited before reading any measurement taken against the deployment as
+// evidence about this function.
 function getClientIp(req) {
-  return (
-    req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    req.headers?.["x-real-ip"] ||
-    req.socket?.remoteAddress ||
-    "unknown"
-  );
+  const headers = req.headers || {};
+
+  const vercelIp = headers["x-vercel-forwarded-for"];
+  if (typeof vercelIp === "string" && vercelIp.trim()) {
+    return vercelIp.trim().split(",")[0].trim();
+  }
+
+  const forwarded = headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    const chain = forwarded
+      .split(",")
+      .map(entry => entry.trim())
+      .filter(Boolean);
+    if (chain.length) return chain[chain.length - 1];
+  }
+
+  return headers["x-real-ip"] || req.socket?.remoteAddress || "unknown";
 }
 
 function getCachedValue(cache, key) {
@@ -252,6 +281,25 @@ function setCachedValue(cache, key, value) {
   });
 }
 
+// A fixed-window limiter keyed by client address, held in module scope.
+//
+// What it actually protects against: one client sending a burst, while a warm
+// instance is still serving. That is the common case and the limit does engage
+// there — 31 identical in-process requests return 429 at exactly the 31st.
+//
+// What it does NOT protect against, and this is not fixable here: a determined
+// caller, or a caller spread across time. The state is a Map in module scope and
+// Vercel recycles serverless instances, so each cold start begins with an empty
+// table. Measured against the live deployment: 40 sequential requests from one
+// address with no spoofed headers returned 40 x 200 and never a 429, which is the
+// signature of per-request cold starts rather than of a broken comparison.
+//
+// Raising the ceiling would not help — a caller who rotates address or waits out
+// the window is unaffected by any value in RATE_LIMIT_MAX_REQUESTS. Real
+// enforcement needs state that outlives an instance (Vercel KV, Upstash, or the
+// platform firewall), and this project adds no dependencies by design. Until one
+// of those exists, treat this as a courtesy throttle, not a security control, and
+// do not describe it as protection from abuse.
 function isRateLimited(ip) {
   const now = Date.now();
   const record = rateLimitMap.get(ip);
