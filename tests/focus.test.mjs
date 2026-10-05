@@ -15,7 +15,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { loadApp } from './harness.mjs';
+
+const cssSource = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '..', 'kindoku.css'),
+  'utf8'
+);
 
 const IDS = [
   'reader-overlay', 'reader-close-btn', 'reader-iframe',
@@ -148,6 +156,34 @@ test('focus is not restored to a detached opener', () => {
   assert.notEqual(doc.activeElement, opener,
     'focused a node that is no longer in the document, which silently does ' +
     'nothing and strands focus on body');
+});
+
+test('visibility is not transitioned on the dialog overlays', () => {
+  // Regression, and one the vm harness cannot catch because it models no
+  // transitions.
+  //
+  // `.modal-overlay { transition: all }` includes `visibility`, so the flip to
+  // `visible` waited for the 350ms transition to finish. `focus()` on a
+  // `visibility: hidden` element is a silent no-op, so focus was requested while
+  // the dialog was still hidden and simply never happened — measured in a real
+  // browser, focus sat on BODY for the whole time the palette was open.
+  //
+  // `visibility 0s` makes the switch immediate; opacity still animates.
+  for (const selector of ['.modal-overlay', '.reader-overlay']) {
+    const block = new RegExp(
+      `\\${selector}\\s*\\{([^}]*)\\}`).exec(cssSource);
+    assert.ok(block, `${selector} not found in kindoku.css`);
+
+    const transition = /transition:\s*([^;]+);/.exec(block[1]);
+    assert.ok(transition, `${selector} has no transition`);
+
+    assert.doesNotMatch(transition[1], /(^|[\s,])all(\s|,|$)/,
+      `${selector} uses \`transition: all\`, which includes visibility and ` +
+      'delays it until the transition ends; focus() during that window is a ' +
+      'silent no-op');
+    assert.match(transition[1], /visibility\s+0s/,
+      `${selector} should transition visibility with 0s so it switches at once`);
+  }
 });
 
 test('closing an overlay that was never opened is harmless', () => {

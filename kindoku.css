@@ -2195,7 +2195,13 @@ h1, h2, h3 {
   padding: 24px;
   opacity: 0;
   visibility: hidden;
-  transition: all var(--anim-normal);
+  /* Not `all`. Transitioning `visibility` delays the flip to `visible` until the
+     transition finishes, and `focus()` on a `visibility: hidden` element is a
+     silent no-op — so dialogs opened without moving keyboard focus into them,
+     which is what WCAG 2.4.3 is about. Fading opacity still animates; visibility
+     switches immediately, and `transition: visibility 0s` says so explicitly
+     rather than relying on it being excluded. */
+  transition: opacity var(--anim-normal), visibility 0s;
 }
 .modal-overlay.open {
   opacity: 1;
@@ -2392,7 +2398,9 @@ h1, h2, h3 {
   opacity: 0;
   visibility: hidden;
   transform: translateY(16px);
-  transition: all var(--anim-normal);
+  /* Same reason as .modal-overlay: transitioning `visibility` would delay it
+     until the transition ends, and focus() on a hidden element does nothing. */
+  transition: opacity var(--anim-normal), transform var(--anim-normal), visibility 0s;
 }
 .reader-overlay.open {
   opacity: 1;

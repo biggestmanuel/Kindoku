@@ -336,6 +336,14 @@ reader does not need.
   focus on the floor. Fails WCAG 2.4.3. The bookkeeping lives beside the overlay
   stack that already tracks what is open, so nested dialogs unwind in order, and
   `data-autofocus` on an element wins over the default close button.
+
+  One subtlety made the first attempt a no-op in the browser while passing in
+  tests: `.modal-overlay` used `transition: all`, which includes `visibility`, so
+  the flip to `visible` waited for the 350ms transition to finish — and
+  `focus()` on a `visibility: hidden` element is silently ignored. The transition
+  is now scoped to the properties meant to animate, with `visibility 0s`. The vm
+  harness models no transitions, so this is asserted against the stylesheet text
+  instead.
 - **Reduced motion is honoured**, live rather than once at load, so changing the
   preference in system settings takes effect without a reload. Three background
   orbs, a pulsing logo and up to 160 particles stop; the particle loop never
