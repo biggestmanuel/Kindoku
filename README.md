@@ -75,7 +75,7 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `smoke.test.mjs` | The handler behind a real `http.Server`: an unparsed body, malformed JSON, a disconnecting client, concurrent requests. |
 | `property.test.mjs` | Invariants over thousands of generated inputs, including a fuzz of the request boundary. Deterministic seeds, so a failure reproduces exactly. |
 | `client.test.mjs` | The pure functions in `kindoku.js`, executed in a `vm` context against a stubbed DOM (`harness.mjs`). |
-| `service-worker.test.mjs` | Caching strategy, driven through stubbed `self` and Cache Storage. |
+| `service-worker.test.mjs` | Caching strategy, driven through stubbed `self` and Cache Storage: precache completeness, network-first navigations, network-first app CSS, stale-while-revalidate for everything else, API never cached, navigation preload. |
 | `html.test.mjs` | Markup structure and accessibility: labels, ARIA, iframe sandboxing, asset existence, nav/format/preset parity. |
 | `dead-code.test.mjs` | Unused functions, constants and CSS classes; stray logging, TODOs, control bytes and encoding damage; bundle size budgets. |
 | `security.test.mjs` | The Content-Security-Policy is strict where it can be and stays in step with what the code actually contacts; the reader frame is sandboxed; pinch zoom works. |
@@ -343,3 +343,14 @@ to boot and then re-issues the request the browser has already made — the enti
 cost a service worker adds to a page load, paid every time. With preload the
 network response is already in flight by the time the worker handles the fetch.
 It degrades to a plain fetch where the API is unavailable.
+
+`kindoku.css` and `kindoku.js` are also **network-first**, unlike every other
+asset. They were stale-while-revalidate until this was measured on the
+deployment: navigations are network-first, so `index.html` arrives fresh, and
+pairing it with the previous build's stylesheet is not "slightly stale" but
+broken — the theme swatches rendered with no background and the six curated covers
+with no image. That presentation used to be inline on the markup, so it travelled
+with the HTML and could not be left behind; moving it into the stylesheet is what
+made this matter. A render-blocking stylesheet is waited for either way, so
+serving it from cache first bought nothing. Fonts and images keep the fast path,
+where a stale copy is merely invisible rather than broken.

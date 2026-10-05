@@ -22,6 +22,11 @@
 
 const CACHE_NAME = 'kindoku-cache-v4';
 
+// The app's own stylesheet and script. Anything a deploy changes the meaning of,
+// as opposed to merely the appearance of, is served network-first. Adding a path
+// here is a deliberate statement that a stale copy is worse than a slow one.
+const APP_SHELL_ASSETS = new Set(['/kindoku.css', '/kindoku.js']);
+
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -134,7 +139,36 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // ── Static assets: stale-while-revalidate ──
+  // ── The app shell's own CSS and JS: network-first ──
+  //
+  // These used to be stale-while-revalidate with everything else, on the
+  // reasoning that serving from cache first never delays paint. That reasoning
+  // is wrong for the app's own stylesheet. The navigation is already
+  // network-first, so index.html arrives fresh, and pairing fresh markup with
+  // yesterday's stylesheet produces a page that is genuinely broken rather than
+  // merely stale: measured on the deployment, the theme swatches rendered with no
+  // background and the six curated covers with no image at all.
+  //
+  // It cost nothing to do this correctly, because a render-blocking stylesheet
+  // has to be waited for either way. Serving it from cache first would only
+  // produce a reflow once the fresh copy arrived.
+  //
+  // This matters more now that the styles carry meaning. The presentation used
+  // to live in inline style attributes on the markup, so it travelled with the
+  // HTML and could not be left behind.
+  if (APP_SHELL_ASSETS.has(url.pathname)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          cacheResponse(request, response);
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // ── Other static assets: stale-while-revalidate ──
   event.respondWith(
     caches.match(request).then((cached) => {
       const network = fetch(request)

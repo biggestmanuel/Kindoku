@@ -405,9 +405,79 @@ test('navigations fall back to the root precache entry too', async () => {
   assert.equal(response.fromRoot, true);
 });
 
-test('static assets are served from cache and refreshed in the background', async () => {
+test("the app shell's own CSS is network-first, not stale-while-revalidate", async () => {
+  // Regression, measured on the deployment.
+  //
+  // Navigations are network-first, so index.html arrives fresh. Pairing it with
+  // yesterday's stylesheet is not "slightly stale", it is broken: the five theme
+  // swatches rendered with no background and the six curated covers with no
+  // image, because that presentation used to be inline on the markup and now
+  // lives in the stylesheet.
+  //
+  // A render-blocking stylesheet is waited for either way, so serving it from
+  // cache first bought nothing and cost correctness.
+  const staleCss = { ok: true, status: 200, fromCache: true, stale: true };
+  const caches = createCaches({
+    [CACHE_NAME]: [[`${origin}/kindoku.css`, staleCss]],
+  });
+  let fetches = 0;
+  const { listeners } = loadServiceWorker({
+    caches,
+    fetchImpl: async () => {
+      fetches += 1;
+      return { ok: true, status: 200, fresh: true, clone: () => ({ ok: true, status: 200 }) };
+    },
+  });
+
+  const response = await runFetch(listeners, assetRequest('/kindoku.css'));
+
+  assert.equal(fetches, 1, 'the stylesheet was not fetched from the network');
+  assert.equal(response.fresh, true,
+    'the cached stylesheet was served instead of the network one, so fresh ' +
+    'markup renders with stale presentation');
+  assert.deepEqual([...caches.__stores.keys()], [CACHE_NAME]);
+});
+
+test('a network-first app shell asset still falls back to cache when offline', async () => {
   const cachedCss = { ok: true, status: 200, fromCache: true };
   const caches = createCaches({ [CACHE_NAME]: [[`${origin}/kindoku.css`, cachedCss]] });
+  const { listeners } = loadServiceWorker({
+    caches,
+    fetchImpl: async () => { throw new TypeError('offline'); },
+  });
+
+  const response = await runFetch(listeners, assetRequest('/kindoku.css'));
+  assert.equal(response, cachedCss,
+    'being offline must not leave the app unstyled');
+});
+
+test('other static assets stay stale-while-revalidate', async () => {
+  // Images and fonts still get the fast path; only the app's own CSS and JS are
+  // network-first. A font served stale is invisible, a stylesheet served stale
+  // is a broken page.
+  const cachedPng = { ok: true, status: 200, fromCache: true };
+  const caches = createCaches({
+    [CACHE_NAME]: [[`${origin}/icon-192.png`, cachedPng]],
+  });
+  let fetches = 0;
+  const { listeners } = loadServiceWorker({
+    caches,
+    fetchImpl: async () => {
+      fetches += 1;
+      return { ok: true, status: 200, fresh: true, clone: () => ({ ok: true, status: 200 }) };
+    },
+  });
+
+  const response = await runFetch(listeners, assetRequest('/icon-192.png'));
+  assert.equal(response, cachedPng, 'a non-shell asset should be served from cache first');
+  assert.equal(fetches, 1, 'but it should still refresh in the background');
+});
+
+test('static assets are served from cache and refreshed in the background', async () => {
+  // An icon, deliberately: /kindoku.css is network-first now, for the reason
+  // covered by the test above.
+  const cachedIcon = { ok: true, status: 200, fromCache: true };
+  const caches = createCaches({ [CACHE_NAME]: [[`${origin}/icon-192.png`, cachedIcon]] });
   let fetchCalls = 0;
   const { listeners } = loadServiceWorker({
     caches,
@@ -417,7 +487,7 @@ test('static assets are served from cache and refreshed in the background', asyn
     },
   });
 
-  return runFetch(listeners, assetRequest('/kindoku.css')).then(response => {
+  return runFetch(listeners, assetRequest('/icon-192.png')).then(response => {
     assert.equal(response.fromCache, true, 'cache wins for instant paint');
     assert.equal(fetchCalls, 1, 'but the entry is still revalidated');
   });
