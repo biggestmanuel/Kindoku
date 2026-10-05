@@ -428,14 +428,60 @@ function syncBodyScrollLock() {
   document.body.style.overflow = shouldLock ? 'hidden' : '';
 }
 
-function pushOverlay(name) {
+// ── Modal focus management ──────────────────────────────────────────────────
+// Opening a dialog left focus on <body>, so a keyboard user who opened the reader
+// then tabbed straight through the entire page *behind* the dialog before
+// reaching any of its controls, and closing it dropped focus on the floor rather
+// than returning it to the button that opened it. Both fail WCAG 2.4.3 (Focus
+// Order).
+//
+// This lives beside the overlay stack because that already knows what is open:
+// the previously focused element is remembered per overlay, so nested dialogs
+// restore in the right order instead of all returning to the same place.
+const overlayRestoreTargets = new Map();
+
+// Where focus should land inside a dialog, in order of preference. An explicit
+// opt-in wins, then the close button, so Escape and Tab both work immediately.
+function focusTargetFor(overlay) {
+  if (!overlay) return null;
+  return (
+    overlay.querySelector('[data-autofocus]') ||
+    overlay.querySelector(
+      '.modal-close-btn, #detail-modal-close, #reader-close-btn, [aria-label*="close" i]'
+    ) ||
+    overlay.querySelector(
+      'a[href], button:not([disabled]), input:not([disabled]), select, textarea, iframe, [tabindex]:not([tabindex="-1"])'
+    )
+  );
+}
+
+function pushOverlay(name, overlay) {
+  // Only remember a real element. Restoring focus to document.body because that
+  // is what happened to be active is worse than remembering nothing.
+  const previous = document.activeElement;
+  if (previous && previous !== document.body && previous.focus) {
+    overlayRestoreTargets.set(name, previous);
+  }
   openOverlays.add(name);
   syncBodyScrollLock();
+
+  if (overlay) {
+    const target = focusTargetFor(overlay);
+    if (target && target.focus) target.focus();
+  }
 }
 
 function popOverlay(name) {
   openOverlays.delete(name);
   syncBodyScrollLock();
+
+  const previous = overlayRestoreTargets.get(name);
+  overlayRestoreTargets.delete(name);
+  // The opener may have been re-rendered while the dialog was open, in which case
+  // focusing it would silently do nothing.
+  if (previous && previous.isConnected && previous.focus) {
+    previous.focus();
+  }
 }
 
 // Translate buttons aren't in the static HTML — they're created once on first
@@ -1484,7 +1530,7 @@ function openReader(url, title, type = 'Manga') {
 
   readerOverlay.classList.add('open');
   readerOverlay.setAttribute('aria-hidden', 'false');
-  pushOverlay('reader');
+  pushOverlay('reader', readerOverlay);
 
   readerResolved = false;
   readerLoadStart = Date.now();
@@ -1632,7 +1678,7 @@ function openDetailModal(rec) {
 
   detailModal.classList.add('open');
   detailModal.setAttribute('aria-hidden', 'false');
-  pushOverlay('detail');
+  pushOverlay('detail', detailModal);
 }
 
 // Clicking the dimmed backdrop closes the modal. Without this the only exits
@@ -1652,7 +1698,7 @@ function openCmdPalette() {
   if (!cmdModal) return;
   cmdModal.classList.add('open');
   cmdModal.setAttribute('aria-hidden', 'false');
-  pushOverlay('cmd');
+  pushOverlay('cmd', cmdModal);
   if (cmdInput) {
     cmdInput.value = '';
     setTimeout(() => cmdInput.focus(), 100);

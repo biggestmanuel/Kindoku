@@ -36,6 +36,30 @@ class ClassList {
   }
 }
 
+/**
+ * The slice of CSS selector syntax these tests need: tag names, `#id`, `.class`,
+ * and `[attr]` / `[attr="value"]` with an optional trailing `i` flag. Anything
+ * richer would be guesswork about what the tests actually need.
+ */
+function matchesSimpleSelector(el, selector) {
+  if (/^[a-z]+$/i.test(selector)) return el.tagName === selector.toUpperCase();
+  if (selector.startsWith('#')) return el.id === selector.slice(1);
+  if (selector.startsWith('.')) {
+    return String(el.className || '').split(/\s+/).includes(selector.slice(1));
+  }
+  if (selector.startsWith('[')) {
+    // The `i` flag lives inside the bracket, before the closing `]`.
+    const m = /^\[([\w-]+)(?:=["']?([^\]"']*)["']?)?(?:\s+i)?\]$/i.exec(selector);
+    if (!m) return false;
+    if (m[2] === undefined) return m[1] in (el.attributes || {});
+    const actual = el.getAttribute ? el.getAttribute(m[1]) : null;
+    return /\s+i\]$/i.test(selector)
+      ? String(actual ?? '').toLowerCase().includes(m[2].toLowerCase())
+      : actual === m[2];
+  }
+  return false;
+}
+
 class FakeElement {
   constructor(tag = 'div', doc = null) {
     this.tagName = String(tag).toUpperCase();
@@ -104,7 +128,44 @@ class FakeElement {
     /* no-op */
   }
   focus() {
-    /* no-op */
+    // Tracked for real. A no-op focus() makes every focus-management test pass
+    // without asserting anything, which is the same failure as a test that
+    // cannot fail.
+    const doc = this.ownerDocument;
+    if (doc) doc.activeElement = this;
+  }
+  blur() {
+    const doc = this.ownerDocument;
+    if (doc && doc.activeElement === this) doc.activeElement = doc.body;
+  }
+  get isConnected() {
+    // `remove()` is a no-op here, so everything stays connected unless a test
+    // says otherwise. Still worth having: popOverlay refuses to restore focus to
+    // a detached node, and that branch needs to be reachable.
+    return this._detached !== true;
+  }
+  querySelector(selector) {
+    const all = [];
+    const walk = node => {
+      for (const child of node.children || []) {
+        all.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    const tag = /^[a-z]+$/i.exec(selector)?.[0]?.toUpperCase();
+    return all.find(el => {
+      if (tag) return el.tagName === tag;
+      if (selector.startsWith('#')) return el.id === selector.slice(1);
+      if (selector.startsWith('.')) return String(el.className || '').split(/\s+/).includes(selector.slice(1));
+      if (selector.startsWith('[')) {
+        const m = /^\[([\w-]+)(?:=["']?([^\]"']*)["']?)?\]$/.exec(selector);
+        if (!m) return false;
+        if (m[2] === undefined) return m[1] in el.attributes;
+        return el.getAttribute(m[1]) === m[2];
+      }
+      return false;
+    }) || null;
   }
   click() {
     this.dispatchEvent({ type: 'click' });
@@ -135,12 +196,32 @@ class FakeElement {
     for (const handler of this.listeners.get(event.type) || []) handler(event);
     return true;
   }
-  querySelector() {
+  querySelector(selector) {
+    // Enough of a selector engine for focus management, which looks inside an
+    // overlay for a close button using a comma-separated list. Real
+    // `querySelector` accepts selector lists, so this must too, or every such
+    // lookup silently misses.
+    for (const part of String(selector).split(',').map(s => s.trim()).filter(Boolean)) {
+      const found = this._descendants().find(el => matchesSimpleSelector(el, part));
+      if (found) return found;
+    }
     return null;
+  }
+  _descendants() {
+    const out = [];
+    const walk = node => {
+      for (const child of node.children || []) {
+        out.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return out;
   }
   querySelectorAll(selector) {
     if (selector === '.card-bookmark-btn') return this._matches || [];
-    return [];
+    const match = this.querySelector(selector);
+    return match ? [match] : [];
   }
   closest() {
     return null;
@@ -168,6 +249,8 @@ class FakeDocument {
     this.listeners = new Map();
     this.head = new FakeElement('head', this);
     this.readyState = 'complete';
+    // Real focus tracking, so focus-management tests assert something.
+    this.activeElement = this.body;
     // Registered stand-ins for the real page's elements. `kindoku.js` looks
     // every one of them up by id at load time and skips the ones that are
     // missing, so a test that exercises an overlay must register it.

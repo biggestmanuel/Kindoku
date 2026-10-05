@@ -80,6 +80,7 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `dead-code.test.mjs` | Unused functions, constants and CSS classes; stray logging, TODOs, control bytes and encoding damage; bundle size budgets. |
 | `security.test.mjs` | The Content-Security-Policy is strict where it can be and stays in step with what the code actually contacts; the reader frame is sandboxed; pinch zoom works. |
 | `reduced-motion.test.mjs` | The particle loop does not run and infinite CSS animations stop when the OS asks for reduced motion, including when that changes mid-session. |
+| `focus.test.mjs` | Opening a dialog moves focus inside it, closing restores focus to the opener, nested dialogs unwind in order, and a detached opener is never refocused (WCAG 2.4.3). |
 | `docs.test.mjs` | The README has not drifted from reality: every suite and npm script is documented, every CI job is explained, and no stale test count or removed suite is left behind. |
 | `diagnostics.test.mjs` | Every distinct upstream failure is reported, the logs never contain the API key or the user's query, and a dead AI path still degrades to the fallback. |
 | `integrity.test.mjs` | Cross-file drift: every `getElementById` target exists, every injected class is styled, every precached asset exists, nothing unescaped reaches an `innerHTML`. |
@@ -328,6 +329,13 @@ reader does not need.
 
 - **Pinch zoom works.** The viewport no longer carries `user-scalable=no` or
   `maximum-scale=1`, which stopped people zooming and failed WCAG 1.4.4.
+- **Dialogs manage focus.** Opening the reader, the detail modal or the command
+  palette moves focus inside it, and closing returns focus to whatever opened it.
+  Previously focus sat on `<body>`, so a keyboard user tabbed through the entire
+  page *behind* the dialog before reaching any of its controls, and closing left
+  focus on the floor. Fails WCAG 2.4.3. The bookkeeping lives beside the overlay
+  stack that already tracks what is open, so nested dialogs unwind in order, and
+  `data-autofocus` on an element wins over the default close button.
 - **Reduced motion is honoured**, live rather than once at load, so changing the
   preference in system settings takes effect without a reload. Three background
   orbs, a pulsing logo and up to 160 particles stop; the particle loop never
