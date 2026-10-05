@@ -79,6 +79,7 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `html.test.mjs` | Markup structure and accessibility: labels, ARIA, iframe sandboxing, asset existence, nav/format/preset parity. |
 | `dead-code.test.mjs` | Unused functions, constants and CSS classes; stray logging, TODOs, control bytes and encoding damage; bundle size budgets. |
 | `security.test.mjs` | The Content-Security-Policy is strict where it can be and stays in step with what the code actually contacts; the reader frame is sandboxed; pinch zoom works. |
+| `secrets.test.mjs` | No tracked file contains a credential, checked against 16 vendor formats, with the four known fixtures allowlisted by name rather than filtered by a "looks like a test" heuristic. |
 | `reduced-motion.test.mjs` | The particle loop does not run and infinite CSS animations stop when the OS asks for reduced motion, including when that changes mid-session. |
 | `focus.test.mjs` | Opening a dialog moves focus inside it, closing restores focus to the opener, nested dialogs unwind in order, and a detached opener is never refocused (WCAG 2.4.3). |
 | `docs.test.mjs` | The README has not drifted from reality: every suite and npm script is documented, every CI job is explained, and no stale test count or removed suite is left behind. |

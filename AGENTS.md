@@ -138,6 +138,21 @@ someone tried to run the script. `docs.test.mjs` now rejects the pattern.
   differently on one platform than another. `dead-code.test.mjs` fails on any.
 - Do not add dependencies. The project has zero, by design, which is why there is
   no lockfile and no install step. Adding one for a single helper is a poor trade.
+- **GROQ_API_KEY lives in Vercel and nowhere else.** It has never been committed.
+  A scan of every blob in the repository's history found four credential-shaped
+  strings, all of them deliberate fixtures. `tests/secrets.test.mjs` keeps it that
+  way, and it runs on every push.
+- **Never filter credential matches on vocabulary.** A rule that ignores anything
+  containing "example", "test" or "fake" will eventually suppress a real key.
+  AWS publishes a full-length sample access key id in its own documentation that
+  ends in EXAMPLE, and that is exactly the sort of string that ends up pasted into
+  a real config. Allowlist by exact value instead, and require each entry to look
+  obviously fake. Quoting that sample key here would itself trip the scanner, which
+  is the point: it means the check is live, not decorative.
+- **Show a secret scanner that it fires.** Every pattern needs the `g` flag:
+  without it `exec` restarts at 0 and returns the same match forever, and the suite
+  hangs rather than reporting. Verified by planting one credential of each format
+  and confirming the suite fails.
 
 ## Things that are easy to get wrong here
 
