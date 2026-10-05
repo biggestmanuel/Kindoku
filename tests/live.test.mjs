@@ -18,6 +18,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const cssSource = readFileSync(resolve(REPO_ROOT, 'kindoku.css'), 'utf8');
+const htmlSource = readFileSync(resolve(REPO_ROOT, 'index.html'), 'utf8');
 
 const ANILIST_URL = 'https://graphql.anilist.co';
 
@@ -362,6 +369,61 @@ test('reading-site external links are still present on real titles', options, as
 //
 // Google has changed this endpoint before, and nothing in the repository would
 // have noticed: the button would simply open a 404 in a new tab.
+
+// ── Curated showcase covers ────────────────────────────────────────────────
+// These are hardcoded asset URLs pointing at a third-party CDN, which is the
+// definition of external data with an expiry date: AniList's filenames carry a
+// content hash that changes when the asset is re-encoded.
+//
+// All six were 404 at once and nothing noticed. The landing page had been
+// showing six empty grey boxes, because a missing background image on a
+// background-color element renders as nothing rather than as an error.
+
+const showcaseCovers = [...cssSource.matchAll(/\.showcase-([a-z]+) \.showcase-cover \{[^}]*?url\('([^']+)'\)/g)]
+  .map(m => ({ slug: m[1], url: m[2] }));
+
+test('the curated showcase covers are all present', options, async () => {
+  assert.equal(showcaseCovers.length, 6,
+    `expected six showcase cover rules in kindoku.css, found ${showcaseCovers.length}. ` +
+    'A card with no rule renders as an empty box.');
+});
+
+test('every curated showcase cover actually resolves', options, async () => {
+  const dead = [];
+
+  for (const { slug, url } of showcaseCovers) {
+    let status = 0;
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(20_000),
+      });
+      status = res.status;
+      await res.arrayBuffer();
+    } catch (err) {
+      dead.push(`${slug}: unreachable (${err.message})`);
+      continue;
+    }
+    if (status !== 200) dead.push(`${slug}: HTTP ${status} ${url}`);
+  }
+
+  assert.deepEqual(dead, [],
+    `curated showcase covers are broken:\n  ${dead.join('\n  ')}\n` +
+    'Re-resolve them against AniList and update kindoku.css.');
+});
+
+test('every showcase card has a matching cover rule', options, async () => {
+  // The markup and the stylesheet must agree. A card whose class has no rule
+  // shows nothing at all, with no error anywhere.
+  const cards = [...htmlSource.matchAll(/class="showcase-card showcase-([a-z]+)"/g)].map(m => m[1]);
+  assert.equal(cards.length, 6, `expected six showcase cards, found ${cards.length}`);
+
+  const ruled = new Set(showcaseCovers.map(c => c.slug));
+  const missing = cards.filter(slug => !ruled.has(slug));
+  assert.deepEqual(missing, [],
+    `these cards have no background rule: ${missing.join(', ')}`);
+});
 
 test('the translate proxy resolves a proxied URL', options, async () => {
   const target = 'https://example.com/?kindoku=reader-probe';

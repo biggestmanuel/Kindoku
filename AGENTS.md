@@ -149,6 +149,19 @@ someone tried to run the script. `docs.test.mjs` now rejects the pattern.
   keeps the few AniList has, and the page comes back thin. Recovery-only-when-empty
   does not help; the page is not empty. This is why step 5 tops up from the
   prefetched deterministic results.
+- **Verify visual changes by computed style, not by eye.** `browser.evaluate`
+  reading `getComputedStyle` before and after is stronger than a screenshot: it
+  compares the values that actually render, and it is automatable. Two traps
+  found this way — a stale cached stylesheet made a correct refactor look broken,
+  and moving presentation out of inline styles made stale-while-revalidate unsafe
+  for `kindoku.css`, because fresh markup plus yesterday's stylesheet is broken
+  rather than merely stale. Check the console for CSP violations; an empty console
+  plus a failed external image means the sandbox has no egress, not that the policy
+  blocked it.
+- **A missing `background-image` is invisible.** On an element with a
+  `background-color` it renders as nothing, not as a broken-image icon, so a dead
+  URL is not detectable by looking. Six curated showcase covers were 404 for
+  months. External asset URLs need a live check.
 - **The handler keeps caches and a rate-limit table in module scope**, exactly as
   a warm serverless instance does. Tests that build the same query share cached
   candidates — use a distinct genre per test rather than assuming isolation.

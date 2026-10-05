@@ -83,7 +83,7 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `docs.test.mjs` | The README has not drifted from reality: every suite and npm script is documented, every CI job is explained, and no stale test count or removed suite is left behind. |
 | `diagnostics.test.mjs` | Every distinct upstream failure is reported, the logs never contain the API key or the user's query, and a dead AI path still degrades to the fallback. |
 | `integrity.test.mjs` | Cross-file drift: every `getElementById` target exists, every injected class is styled, every precached asset exists, nothing unescaped reaches an `innerHTML`. |
-| `live.test.mjs` | Contract tests against the real AniList API. Run by `npm run test:live`. |
+| `live.test.mjs` | Contract tests against the real AniList and Google Translate: query shapes, field availability, every UI tag, and that the six hardcoded showcase cover URLs still resolve. Run by `npm run test:live`. |
 | `models.test.mjs` | The Groq model ladder contains no retired model, and its length fits inside the request budget. |
 | `groq-live.test.mjs` | Contract tests against the real Groq API. Runs automatically when `GROQ_API_KEY` is set, skipped otherwise. |
 | `deployed.test.mjs` | Contract tests against the live deployment, including which build is currently shipped. Run by `npm run test:deployed`. |
@@ -295,6 +295,17 @@ details were load-bearing:
   `.cmd-item[hidden]` rule already in the file.
 - The six covers are keyed off each card's existing class, so no wrapper element
   or extra markup was introduced.
+
+Re-resolving those six URLs against the live API turned up a bug unrelated to the
+refactor: **every one was a 404.** They pointed at AniList's `/large/` size with
+stale content-hashed filenames, so the landing page had been rendering six empty
+grey boxes. A missing `background-image` on an element that has a
+`background-color` renders as nothing rather than as a broken-image icon, which is
+why it was invisible.
+
+AniList's filenames carry a content hash that changes when an asset is re-encoded,
+so these are external data with an expiry date. `live.test.mjs` now resolves all
+six on the schedule and names the card and status for any that break.
 
 Verified by computed style rather than by eye: every swatch colour and every
 cover background resolves to the identical value before and after, and each of
