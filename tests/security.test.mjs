@@ -157,26 +157,81 @@ test('the app genuinely has no inline script for the strict policy to break', ()
   }
 });
 
-test('unsafe-inline is allowed for styles only', () => {
-  const styleSrc = directives.get('style-src') || [];
-  assert.ok(styleSrc.includes('unsafe-inline'),
-    "style-src dropped 'unsafe-inline'; the markup still carries inline style attributes");
-  for (const directive of ['script-src', 'frame-src', 'object-src']) {
-    assert.ok(!(directives.get(directive) || []).includes('unsafe-inline'),
-      `${directive} allows 'unsafe-inline'`);
+test('style-src is strict: there are no inline style attributes left', () => {
+  // The last permissive directive in the policy. Every style="" attribute in the
+  // markup and in the generated card HTML was moved to a class so that
+  // 'unsafe-inline' could be dropped — which is what lets a style-based
+  // injection do nothing.
+  assert.ok(!(directives.get('style-src') || []).includes('unsafe-inline'),
+    "style-src still allows 'unsafe-inline'");
+
+  for (const [name, source] of [['index.html', indexHtml], ['kindoku.js', clientJs]]) {
+    const inline = [...source.matchAll(/\sstyle="[^"]*"/g)];
+    assert.deepEqual(inline.length, 0,
+      `${name} has ${inline.length} inline style attribute(s): ` +
+      `${inline.map(m => m[0].trim()).join(', ')}`);
   }
 });
 
-test('every inline style in the markup has a home in the policy', () => {
-  // If the inline styles are ever moved to classes, this tells you to tighten
-  // style-src, and the assertion above tells you to drop 'unsafe-inline'.
-  const inlineStyles = [
-    ...indexHtml.matchAll(/\sstyle="[^"]*"/g),
-    ...clientJs.matchAll(/\sstyle="[^"]*"/g),
+test('the replacement classes exist and are referenced', () => {
+  // A class in the stylesheet that nothing uses, or a class in the markup that
+  // the stylesheet never defines, both mean a silently unstyled element.
+  for (const name of [
+    'card-cover-placeholder-tall',
+    'card-genres-spaced',
+    'toast-icon',
+  ]) {
+    assert.ok(css.includes(`.${name}`), `${name} is used but never defined in the CSS`);
+    assert.ok(clientJs.includes(name) || indexHtml.includes(name),
+      `${name} is defined in the CSS but never used`);
+  }
+
+  // Every theme swatch colour must still resolve, or the picker shows five grey
+  // dots. Keyed off data-theme, so a rename of either side breaks it silently.
+  for (const [theme, colour] of [
+    ['gold', '#e8b84b'],
+    ['crimson', '#e74c3c'],
+    ['jade', '#1abc9c'],
+    ['amethyst', '#bb86fc'],
+    ['azure', '#64d2ff'],
+  ]) {
+    assert.match(css, new RegExp(`data-theme="${theme}"\\s*\\]\\s*\\.opt-dot\\s*\\{[^}]*${colour}`),
+      `the ${theme} swatch colour ${colour} is missing from the stylesheet`);
+    assert.ok(indexHtml.includes(`data-theme="${theme}"`),
+      `no swatch button declares data-theme="${theme}"`);
+  }
+
+  // The showcase covers carry hardcoded AniList URLs that used to be inline.
+  const covers = [...css.matchAll(/\.showcase-([a-z]+) \.showcase-cover \{[^}]*anilistcdn/g)];
+  assert.equal(covers.length, 6,
+    `expected six showcase cover rules in the CSS, found ${covers.length}`);
+  const cards = [...indexHtml.matchAll(/class="showcase-card showcase-([a-z]+)"/g)].map(m => m[1]);
+  assert.equal(cards.length, 6, `expected six showcase cards, found ${cards.length}`);
+  for (const card of cards) {
+    assert.ok(css.includes(`.showcase-${card} .showcase-cover {`),
+      `showcase-${card} has no background rule, so its cover renders empty`);
+  }
+});
+
+test('the elements the script reveals are hidden by CSS, not by an inline style', () => {
+  // The user-agent [hidden] rule loses to any author rule, so `.install-btn
+  // { display: flex }` would leave the install button permanently visible. These
+  // id-scoped rules are what prevent that, and they must still lose to an inline
+  // display value or the script could not reveal anything.
+  const revealed = [
+    'install-btn', 'search-clear-btn', 'recent-searches-box', 'error-msg',
+    'results-content', 'library-file-input', 'library-empty', 'library-no-matches',
   ];
-  assert.ok(inlineStyles.length > 0,
-    'no inline style attributes remain — style-src can be tightened to ' +
-    "'self' and this test should be inverted");
+
+  for (const id of revealed) {
+    assert.ok(indexHtml.includes(`id="${id}"`),
+      `#${id} is missing from the markup`);
+    assert.match(indexHtml, new RegExp(`id="${id}"[^>]*hidden`),
+      `#${id} does not start hidden, so it flashes before the script runs`);
+    assert.match(css, new RegExp(`#${id}\\[hidden\\]`),
+      `#${id}[hidden] has no CSS rule; an author display rule would beat the ` +
+      'user-agent [hidden] rule and leave it permanently visible');
+  }
 });
 
 test('object-src and base-uri are closed', () => {

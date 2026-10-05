@@ -22,7 +22,7 @@ function showToast(message, icon = '✦', duration = 3200) {
   toast.className = 'toast';
   toast.setAttribute('role', 'status');
   // The icon is a caller-supplied string, so it gets escaped like the message.
-  toast.innerHTML = `<span style="color:var(--accent-primary);">${escapeHtml(icon)}</span><span>${escapeHtml(message)}</span>`;
+  toast.innerHTML = `<span class="toast-icon">${escapeHtml(icon)}</span><span>${escapeHtml(message)}</span>`;
   toastContainer.appendChild(toast);
 
   setTimeout(() => {
@@ -1567,7 +1567,7 @@ function openDetailModal(rec) {
 
   const coverMarkup = rec.coverImage
     ? `<img src="${escapeHtml(rec.coverImage)}" alt="${escapeHtml(rec.title)}" class="detail-cover-img" loading="lazy" />`
-    : `<div class="card-cover-placeholder" style="height:320px;"><span class="placeholder-symbol">読</span></div>`;
+    : `<div class="card-cover-placeholder card-cover-placeholder-tall"><span class="placeholder-symbol">読</span></div>`;
 
   const genresMarkup = toArray(rec.genre)
     .map(g => `<span class="genre-tag-sm">${escapeHtml(g)}</span>`).join('');
@@ -1587,7 +1587,7 @@ function openDetailModal(rec) {
           ${rec.rating ? `<span class="card-rating-chip">★ ${escapeHtml(rec.rating)} Score</span>` : ''}
         </div>
 
-        <div class="card-genres" style="margin-bottom:16px;">${genresMarkup}</div>
+        <div class="card-genres card-genres-spaced">${genresMarkup}</div>
 
         <div class="detail-synopsis">
           ${escapeHtml(rec.synopsis || 'No detailed synopsis available.')}

@@ -602,6 +602,14 @@ h1, h2, h3 {
   border-radius: 50%;
 }
 
+/* Swatch colours, keyed off the button's own data-theme.
+   These were style="" attributes too. */
+.theme-opt[data-theme="gold"] .opt-dot { background: #e8b84b; }
+.theme-opt[data-theme="crimson"] .opt-dot { background: #e74c3c; }
+.theme-opt[data-theme="jade"] .opt-dot { background: #1abc9c; }
+.theme-opt[data-theme="amethyst"] .opt-dot { background: #bb86fc; }
+.theme-opt[data-theme="azure"] .opt-dot { background: #64d2ff; }
+
 /* Install PWA Button */
 .install-btn {
   display: flex;
@@ -882,6 +890,29 @@ h1, h2, h3 {
   flex-direction: column;
   justify-content: space-between;
   padding: 14px;
+}
+
+/* The curated covers, one per card.
+   These were style="" attributes in the markup, which is the only reason
+   style-src had to keep 'unsafe-inline'. Keyed off the card's own class so no
+   wrapper or extra markup is introduced. */
+.showcase-solo .showcase-cover {
+  background-image: linear-gradient(180deg, transparent 40%, rgba(9, 8, 6, 0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx105398-b6138kgBspd1.jpg');
+}
+.showcase-berserk .showcase-cover {
+  background-image: linear-gradient(180deg, transparent 40%, rgba(9, 8, 6, 0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx30002-7781i50gzp5X.jpg');
+}
+.showcase-orv .showcase-cover {
+  background-image: linear-gradient(180deg, transparent 40%, rgba(9, 8, 6, 0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx119257-2V3a1lC1xYy2.jpg');
+}
+.showcase-lotm .showcase-cover {
+  background-image: linear-gradient(180deg, transparent 40%, rgba(9, 8, 6, 0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx114960-R2g5sQ94n3p1.jpg');
+}
+.showcase-frieren .showcase-cover {
+  background-image: linear-gradient(180deg, transparent 40%, rgba(9, 8, 6, 0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx118586-g47d6YjQ6z4O.jpg');
+}
+.showcase-nano .showcase-cover {
+  background-image: linear-gradient(180deg, transparent 40%, rgba(9, 8, 6, 0.95)), url('https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx119853-xK8p4O8qR4qO.jpg');
 }
 .showcase-tag {
   align-self: flex-start;
@@ -2695,4 +2726,44 @@ h1, h2, h3 {
   #particle-canvas {
     display: none !important;
   }
+}
+
+/* ── Classes replacing former inline styles ──────────────────────────────────
+   The last three style="" attributes in the project. The detail modal needs a
+   taller cover box and more space under the genre list than a result card does;
+   both call sites share the base class, so each variant is a modifier rather
+   than a duplicated rule. The toast icon borrows the theme accent. */
+.card-cover-placeholder-tall {
+  height: 320px;
+}
+
+.card-genres-spaced {
+  margin-bottom: 16px;
+}
+
+.toast-icon {
+  color: var(--accent-primary);
+}
+
+/* ── Elements the script reveals ───────────────────────────────────────────
+   These eight carried style="display:none" so they would start hidden and be
+   revealed by assigning an inline display value. That inline style attribute
+   was the last thing forcing style-src to keep 'unsafe-inline', so they now use
+   the hidden attribute instead.
+
+   These rules are required, not decorative. The user-agent [hidden] rule is
+   weaker than any author rule, so `.install-btn { display: flex }` would win and
+   leave the install button permanently visible. An id-scoped [hidden] rule
+   outranks a single class, while an inline display value still outranks both,
+   which is exactly the precedence the script relies on. Same approach as
+   `.cmd-item[hidden]` elsewhere in this file. */
+#install-btn[hidden],
+#search-clear-btn[hidden],
+#recent-searches-box[hidden],
+#error-msg[hidden],
+#results-content[hidden],
+#library-file-input[hidden],
+#library-empty[hidden],
+#library-no-matches[hidden] {
+  display: none;
 }

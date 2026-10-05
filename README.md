@@ -256,10 +256,14 @@ Hobby caps duration at 10s; raising it requires a paid plan.
 
 Applied to every response, including `/api/*`:
 
-- **`script-src 'self'`** with no `unsafe-inline` and no `unsafe-eval`. The app
-  ships no inline script and calls no `eval`, so this costs nothing — and it is
-  the directive that matters, because the codebase assembles markup from strings
-  throughout. This is what turns an injected `<script>` into a refused one.
+- **`script-src 'self'` and `style-src 'self'`**, with no `unsafe-inline` and no
+  `unsafe-eval`. The app ships no inline script, calls no `eval`, and carries no
+  inline style attributes: the markup had none to begin with, and the rest were
+  moved to classes. Both directives are now strict, which is what makes a
+  style-based injection do nothing. This matters because the codebase assembles
+  markup from strings throughout. `security.test.mjs` asserts the premise rather
+  than trusting it, so adding an inline script or style later fails loudly
+  instead of silently breaking at runtime.
 - `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` — the three that
   have no legitimate use here.
 - `frame-ancestors 'none'` plus `X-Frame-Options: DENY` for clickjacking.
@@ -270,16 +274,33 @@ Applied to every response, including `/api/*`:
   and the motion sensors.
 - HSTS, and `Cross-Origin-Opener-Policy: same-origin`.
 
-`style-src` is the one permissive directive: `index.html` carries about twenty
-`style=` attributes and `kindoku.js` emits three more. Moving those to classes is
-the better end state, but it needs visual regression testing this repository
-cannot do, and inline style is a materially smaller risk than inline script.
-`security.test.mjs` asserts `'unsafe-inline'` is only ever allowed for styles, and
-asserts those inline styles still exist so the day they are refactored the
-permissive directive gets removed.
-
 `frame-src https:` cannot be narrowed: AniList links a different reading site per
 title, so there is nothing to enumerate.
+
+### Moving the inline styles out
+
+`style-src` was the last permissive directive, held open by 22 `style=""`
+attributes: six curated cover backgrounds, five theme swatches, eight
+`display:none` defaults, and three in generated card markup.
+
+They are now classes, and the policy has no `'unsafe-inline'` anywhere. Two
+details were load-bearing:
+
+- The eight hidden elements use the `hidden` attribute rather than a class. The
+  user-agent `[hidden]` rule is weaker than any author rule, so
+  `.install-btn { display: flex }` would have won and left the install button
+  permanently visible. Id-scoped `[hidden]` rules at the end of the stylesheet fix
+  the precedence, and an inline `display` value still outranks them, which is what
+  lets the script reveal each element as before. Same approach as the
+  `.cmd-item[hidden]` rule already in the file.
+- The six covers are keyed off each card's existing class, so no wrapper element
+  or extra markup was introduced.
+
+Verified by computed style rather than by eye: every swatch colour and every
+cover background resolves to the identical value before and after, and each of
+the eight elements still starts hidden, reveals on an inline `display`, and
+re-hides. A screenshot would have shown "looks the same"; this shows the resolved
+values are equal.
 
 ### The reader frame
 

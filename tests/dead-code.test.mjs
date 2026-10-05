@@ -58,8 +58,16 @@ test('every top-level DOM reference in kindoku.js is used', () => {
 // ── Unused CSS ────────────────────────────────────────────────────────────
 
 test('no CSS class is defined that nothing in the project references', () => {
+  // `url(...)` values are stripped first. The stylesheet legitimately holds
+  // asset URLs now that the inline styles moved here, and a naive scan reads
+  // `.co` and `.jpg` out of a hostname and an extension as if they were class
+  // selectors.
+  const selectors = css
+    .replace(/url\([^)]*\)/g, 'url()')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
   const defined = new Set(
-    [...css.matchAll(/\.([a-z][a-z0-9-]+)/gi)].map(m => m[1])
+    [...selectors.matchAll(/\.([a-z][a-z0-9-]+)/gi)].map(m => m[1])
   );
   assert.ok(defined.size > 100, `expected many classes, parsed ${defined.size}`);
 
