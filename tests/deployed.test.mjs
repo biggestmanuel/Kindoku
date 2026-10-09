@@ -499,6 +499,33 @@ test('deployed: hardening headers are present on the API too', { timeout: TEST_T
 
 // ── Which build is deployed ───────────────────────────────────────────────
 
+test('deployed: every 200 carries an explicit degraded flag', { timeout: TEST_TIMEOUT_MS }, async () => {
+  // A second build detector, for the endpoint rather than the service worker.
+  //
+  // `the current build is running` compares CACHE_NAME out of sw.js, so it cannot
+  // see a change to api/recommend.js at all. This one reads the behaviour of the
+  // fix itself: before it, the two success-path 200s omitted `degraded`
+  // entirely, so a body without the key proves an older build is being served.
+  //
+  // The assertion is on key PRESENCE, never truthiness. An absent key is falsy,
+  // which is exactly what made the original bug invisible.
+  const { status, json } = await request({
+    mode: 'discover',
+    genres: ['Action', 'Fantasy'],
+    formats: ['Manga'],
+  });
+
+  assert.equal(status, 200);
+  assert.ok(json.recommendations.length > 0,
+    `expected the success path, got ${JSON.stringify(json).slice(0, 300)}`);
+  assert.ok(
+    Object.hasOwn(json, 'degraded'),
+    `a success 200 omitted "degraded", so the deployment is serving a build from ` +
+    `before the fix: ${JSON.stringify(json).slice(0, 300)}. Check that Vercel has ` +
+    'deployed the current commit rather than waiting and re-running.',
+  );
+});
+
 test('deployed: the current build is running', { timeout: TEST_TIMEOUT_MS }, async () => {
   // Compares a literal from the committed source with what the deployment
   // serves. Two earlier attempts at this used the API and both were wrong:

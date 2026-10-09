@@ -88,7 +88,7 @@ The suite uses Node's built-in `node:test` runner. There is nothing to install.
 | `live.test.mjs` | Contract tests against the real AniList and Google Translate: query shapes, field availability, every UI tag, and that the six hardcoded showcase cover URLs still resolve. Run by `npm run test:live`. |
 | `models.test.mjs` | The Groq model ladder contains no retired model, and its length fits inside the request budget. |
 | `groq-live.test.mjs` | Contract tests against the real Groq API. Runs automatically when `GROQ_API_KEY` is set, skipped otherwise. |
-| `deployed.test.mjs` | Contract tests against the live deployment, including which build is currently shipped. Run by `npm run test:deployed`. |
+| `deployed.test.mjs` | Contract tests against the live deployment, including two independent build detectors — one reading `CACHE_NAME` from `sw.js`, one asserting every 200 carries `degraded`, which the old build omitted. `request()` retries internally on a 429 or a degraded body, so no test can bypass it. Run by `npm run test:deployed`. |
 
 ### CI
 
