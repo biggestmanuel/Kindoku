@@ -55,9 +55,18 @@ let ipCounter = 0;
 let lastCallAt = 0;
 const MIN_SPACING_MS = 1_200;
 
-// How many times a `degraded` body is re-requested. Kept small: a genuine outage
-// should still fail the suite rather than be retried into a false pass.
-const DEGRADED_RETRIES = 3;
+// How many times a `degraded` body is re-requested.
+//
+// Sized against measured pressure, not optimism: reproducing CI locally with a
+// background AniList load (534 competing queries during one run) exhausted three
+// retries and still surfaced `degraded=true` at an assertion. Five survives that,
+// and still fails fast enough that a genuine outage is reported rather than
+// retried into a false pass — five attempts at ~2s apart plus the response times.
+const DEGRADED_RETRIES = 5;
+
+// A single request's ceiling. The deployment's own budget is 10s, so anything
+// past this means the request is not going to answer.
+const REQUEST_TIMEOUT_MS = 15_000;
 
 async function pace() {
   const wait = lastCallAt + MIN_SPACING_MS - Date.now();
@@ -83,7 +92,7 @@ async function pace() {
  * confident about carries `degraded: false` and is returned immediately, which is
  * what caught the pagination and constraint bugs this suite exists to find.
  */
-async function request(body, { attempts = 4 } = {}) {
+async function request(body, { attempts = 4, retry = true } = {}) {
   let last = { status: 0, headers: new Headers(), text: '', json: null };
   let degradedRetries = 0;
 
@@ -101,7 +110,7 @@ async function request(body, { attempts = 4 } = {}) {
         'x-forwarded-for': `198.51.${Math.floor(ipCounter / 250)}.${(ipCounter % 250) + 1}`,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     const text = await res.text();
@@ -120,7 +129,14 @@ async function request(body, { attempts = 4 } = {}) {
 
     // AniList did not complete. Back off and ask again — a separate budget from the
     // 429 one, so a degraded body does not consume the retries meant for a 429.
-    if (last.json?.degraded && degradedRetries < DEGRADED_RETRIES) {
+    //
+    // Skipped when `retry: false`, which is what the input-handling tests use.
+    // Retrying there multiplies a burst into attempts x (pace + timeout), which is
+    // how a test that sends five malformed bodies blew past its own 40s budget and
+    // reported a timeout instead of the thing it was checking. Those requests are
+    // about input handling, not about AniList, so a degraded body says nothing
+    // useful about them.
+    if (retry && last.json?.degraded && degradedRetries < DEGRADED_RETRIES) {
       degradedRetries += 1;
       await sleep(2_000 + degradedRetries * 2_000);
       continue;
@@ -315,7 +331,7 @@ test('deployed: bad input is rejected with a message, never a 500', { timeout: T
     [{ mode: 'discover' }, 400],
   ];
   for (const [body, expected] of cases) {
-    const { status, json } = await request(body);
+    const { status, json } = await request(body, { retry: false });
     assert.equal(status, expected, `${JSON.stringify(body)} -> ${status}`);
     assert.equal(typeof json.error, 'string',
       'an error response must carry a message the UI can show');
@@ -337,7 +353,9 @@ test('deployed: hostile input is handled without a 5xx', { timeout: TEST_TIMEOUT
     { mode: 'discover', genres: null, tags: 'nonsense', formats: 42 },
   ];
   for (const body of hostile) {
-    const { status } = await request(body);
+    // retry: false — five bodies in one test, so any retry budget multiplies past
+    // the test's own timeout and reports a hang instead of a status code.
+    const { status } = await request(body, { retry: false });
     assert.ok(status >= 200 && status < 500,
       `${JSON.stringify(body).slice(0, 70)} -> ${status}`);
   }
