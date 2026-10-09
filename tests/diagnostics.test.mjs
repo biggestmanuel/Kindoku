@@ -51,9 +51,15 @@ function createRes() {
   return res;
 }
 
-async function invoke(body) {
+// `ip` defaults to empty headers, which makes every caller in this file share one
+// rate-limit bucket — correct, because it mirrors a single client, and it is why
+// the window only has room for so many requests. A test that needs several
+// requests, or that must not be starved by its neighbours, passes a distinct
+// address so it gets its own window. See the same rule in AGENTS.md.
+async function invoke(body, { ip } = {}) {
   const res = createRes();
-  await handler({ method: 'POST', body, headers: {}, socket: {} }, res);
+  const headers = ip ? { 'x-forwarded-for': ip } : {};
+  await handler({ method: 'POST', body, headers, socket: {} }, res);
   return res;
 }
 
@@ -506,6 +512,84 @@ test('a genuine no-match is not reported as degraded', async () => {
   assert.equal(res.body.exhausted, true);
   assert.equal(res.body.degraded, false,
     'AniList answered with an empty result set; that is not a degraded response');
+});
+
+test('every 200 carries an explicit degraded flag', async () => {
+  // Regression: the two success paths omitted `degraded` entirely, so a consumer
+  // could not tell a healthy response from an upstream outage — the key being
+  // absent reads as falsy, which is indistinguishable from `false`.
+  //
+  // This is what made the CI smoke test fail on every scheduled run while passing
+  // locally. `withoutDegraded()` in tests/deployed.test.mjs retries only while
+  // `degraded` is truthy, so under CI's parallel load the AI stage returned
+  // nothing and the top-up query failed, reaching a success-path return with
+  // `recommendations: []` and no flag. The reported failure was
+  // `the query returned nothing (degraded=undefined)`, which describes a fault
+  // when the truth was a rate limit — and got no retry.
+  delete process.env.GROQ_API_KEY;
+
+  // AniList must return a REAL title here. An empty page takes the empty-result
+  // branch, which always carried `degraded`, so mocking an empty page leaves the
+  // two success paths untested — which is exactly how the first version of this
+  // test passed against the unfixed code.
+  globalThis.fetch = async url => {
+    if (String(url).includes('graphql')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            Page: {
+              media: [{
+                id: 1,
+                title: { romaji: 'Real Title' },
+                type: 'MANGA',
+                genres: ['Action'],
+                description: 'synopsis',
+                status: 'RELEASING',
+                averageScore: 70,
+                coverImage: { extraLarge: '' },
+              }],
+            },
+          },
+        }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({ data: { Media: null } }) };
+  };
+
+  const res = await invoke(
+    { mode: 'search', searchInput: 'Real Title' },
+    { ip: '198.51.100.61' },
+  );
+
+  assert.equal(res.statusCode, 200);
+  // Guard the guard: if this ever stops being the success path the assertion below
+  // becomes vacuous, which is precisely the failure this test already had once.
+  assert.ok(res.body.recommendations.length > 0,
+    `expected the success path with titles, got ${JSON.stringify(res.body)}`);
+  assert.notEqual(res.body.exhausted, true,
+    'this scenario must not take the empty-result branch, which never had the bug');
+  assert.ok(
+    Object.hasOwn(res.body, 'degraded'),
+    `a success 200 omitted "degraded": ${JSON.stringify(res.body)}. ` +
+    'An absent flag is read as false by both the client and withoutDegraded(), ' +
+    'so an outage becomes a confident no-match.',
+  );
+  assert.equal(res.body.degraded, false,
+    'AniList answered with a title, so degraded must be false, not absent');
+
+  // And the same must hold when the upstream is actually down, otherwise the fix
+  // is only adding the key on the happy path.
+  globalThis.fetch = async () => {
+    throw Object.assign(new Error('fetch failed'), { name: 'TypeError' });
+  };
+  const down = await invoke(
+    { mode: 'discover', genres: ['Action'], formats: ['Manga'] },
+    { ip: '198.51.100.62' },
+  );
+  assert.ok(Object.hasOwn(down.body, 'degraded'),
+    'the outage path must carry degraded too');
 });
 
 test('a thin AI page is topped up from AniList', async () => {

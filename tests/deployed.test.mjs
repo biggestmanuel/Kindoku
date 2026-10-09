@@ -55,14 +55,37 @@ let ipCounter = 0;
 let lastCallAt = 0;
 const MIN_SPACING_MS = 1_200;
 
+// How many times a `degraded` body is re-requested. Kept small: a genuine outage
+// should still fail the suite rather than be retried into a false pass.
+const DEGRADED_RETRIES = 3;
+
 async function pace() {
   const wait = lastCallAt + MIN_SPACING_MS - Date.now();
   if (wait > 0) await sleep(wait);
   lastCallAt = Date.now();
 }
 
+/**
+ * POSTs to the endpoint, retrying the two conditions that are not evidence of a
+ * fault: a 429, and a `degraded` body.
+ *
+ * The degraded retry lives HERE rather than in a wrapper the call sites remember to
+ * use. It used to be `withoutDegraded()`, applied at the call site, and only 4 of
+ * 19 requests did so — the other 15 hard-failed the moment AniList was briefly
+ * rate limited. That is why the scheduled CI job failed on every run since it was
+ * introduced while the same suite passed locally: CI runs this file alongside the
+ * third-party contracts job, so both are hitting AniList at once.
+ *
+ * Putting it inside `request()` makes it impossible for a new test to bypass, which
+ * is the failure mode that matters — a test author has no reason to know this.
+ *
+ * Retrying is not papering over a regression. An empty result the server is
+ * confident about carries `degraded: false` and is returned immediately, which is
+ * what caught the pagination and constraint bugs this suite exists to find.
+ */
 async function request(body, { attempts = 4 } = {}) {
   let last = { status: 0, headers: new Headers(), text: '', json: null };
+  let degradedRetries = 0;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     await pace();
@@ -71,9 +94,10 @@ async function request(body, { attempts = 4 } = {}) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Spoofed so the limiter does not reject the suite. This only works
-        // because the deployment trusts x-forwarded-for. It is a test aid — do
-        // not copy this pattern into application code.
+        // Distinct per request so the limiter cannot reject the suite. Harmless
+        // rather than necessary: the limiter does not engage on Vercel, since its
+        // state is module scope and instances are recycled. See the note above
+        // `getClientIp` in api/recommend.js.
         'x-forwarded-for': `198.51.${Math.floor(ipCounter / 250)}.${(ipCounter % 250) + 1}`,
       },
       body: JSON.stringify(body),
@@ -89,30 +113,22 @@ async function request(body, { attempts = 4 } = {}) {
     }
     last = { status: res.status, headers: res.headers, text, json };
 
-    if (res.status !== 429) return last;
-    await sleep(4_000 + attempt * 4_000);
+    if (res.status === 429) {
+      await sleep(4_000 + attempt * 4_000);
+      continue;
+    }
+
+    // AniList did not complete. Back off and ask again — a separate budget from the
+    // 429 one, so a degraded body does not consume the retries meant for a 429.
+    if (last.json?.degraded && degradedRetries < DEGRADED_RETRIES) {
+      degradedRetries += 1;
+      await sleep(2_000 + degradedRetries * 2_000);
+      continue;
+    }
+
+    return last;
   }
   return last;
-}
-
-/**
- * Runs `fn` and retries while the deployment reports `degraded`.
- *
- * `degraded` is the endpoint saying its AniList calls did not complete, so the
- * empty result reflects AniList's rate limit rather than the code under test.
- * Retrying on that flag is not papering over a regression — an empty result the
- * server is confident about carries `degraded: false` and is reported as a
- * failure immediately, which is what caught the pagination and constraint bugs
- * this suite exists to find.
- */
-async function withoutDegraded(fn, { tries = 3 } = {}) {
-  let result;
-  for (let attempt = 0; attempt < tries; attempt += 1) {
-    result = await fn();
-    if (!result.json?.degraded) return result;
-    if (attempt < tries - 1) await sleep(2_000 + attempt * 2_000);
-  }
-  return result;
 }
 
 async function postJson(path) {
@@ -202,11 +218,11 @@ test('deployed: an exact query does not trigger a similarity list', { timeout: T
 // ── Discover contract ─────────────────────────────────────────────────────
 
 test('deployed: discover returns titles matching every selected genre', { timeout: TEST_TIMEOUT_MS }, async () => {
-  const { status, json } = await withoutDegraded(() => request({
+  const { status, json } = await request({
     mode: 'discover',
     genres: ['Action', 'Fantasy'],
     formats: ['Manga'],
-  }));
+  });
   assert.equal(status, 200);
   assertWellFormed(json.recommendations, 'discover');
   assert.ok(json.recommendations.length > 0,
@@ -230,11 +246,11 @@ test('deployed: discover honours the selected format', { timeout: TEST_TIMEOUT_M
 test('deployed: a genre at position 5+ still matches', { timeout: TEST_TIMEOUT_MS }, async () => {
   // The original code sliced AniList's genre list to 4 before matching, so any
   // title whose only "Sports" tag was 5th or later failed verification.
-  const { json } = await withoutDegraded(() => request({
+  const { json } = await request({
     mode: 'discover',
     genres: ['Action', 'Sports'],
     formats: ['Manga'],
-  }));
+  });
   assert.ok(json.recommendations.length > 0,
     `the query returned nothing (degraded=${json.degraded})`);
   const withSports = json.recommendations.filter(r => r.genre.includes('Sports'));
@@ -245,13 +261,13 @@ test('deployed: a genre at position 5+ still matches', { timeout: TEST_TIMEOUT_M
 test('deployed: a prose prompt does not sink a preset-style query', { timeout: TEST_TIMEOUT_MS }, async () => {
   // Every 1-click preset ships a prose prompt. The old engine ANDed it into
   // AniList's literal search, which matched nothing, and the user saw an error.
-  const { status, json } = await withoutDegraded(() => request({
+  const { status, json } = await request({
     mode: 'discover',
     genres: ['Action', 'Fantasy'],
     tags: ['Tower Climbing'],
     formats: ['Manhwa'],
     customInput: 'Tower climbing with unique awakening and system quests',
-  }));
+  });
   assert.equal(status, 200, `preset-style query returned ${status}`);
   assert.ok(json.recommendations.length > 0,
     `a preset-style query returned nothing (degraded=${json.degraded})`);
@@ -263,16 +279,16 @@ test('deployed: a prose prompt does not sink a preset-style query', { timeout: T
 test('deployed: paging returns titles that are not already on screen', { timeout: TEST_TIMEOUT_MS }, async () => {
   // The old discovery query had no pagination at all, so "Load More" re-served
   // the identical twelve titles.
-  const first = await withoutDegraded(() =>
-    request({ mode: 'discover', genres: ['Action'], formats: ['Manga'], page: 1 }));
+  const first = await
+    request({ mode: 'discover', genres: ['Action'], formats: ['Manga'], page: 1 });
   const exclude = first.json.recommendations.map(r => r.title);
-  const second = await withoutDegraded(() => request({
+  const second = await request({
     mode: 'discover',
     genres: ['Action'],
     formats: ['Manga'],
     page: 2,
     exclude,
-  }));
+  });
 
   assert.ok(second.json.recommendations.length > 0, () =>
     `page 2 returned nothing. Page 1 gave ${exclude.length} titles to exclude. ` +
@@ -468,8 +484,8 @@ test('deployed: the shell does not disable pinch zoom', { timeout: TEST_TIMEOUT_
 });
 
 test('deployed: hardening headers are present on the API too', { timeout: TEST_TIMEOUT_MS }, async () => {
-  const { headers } = await withoutDegraded(() =>
-    request({ mode: 'discover', genres: ['Action'], formats: ['Manga'] }));
+  const { headers } = await
+    request({ mode: 'discover', genres: ['Action'], formats: ['Manga'] });
 
   assert.equal(headers.get('x-content-type-options'), 'nosniff',
     'a JSON endpoint without nosniff can have its content type sniffed');

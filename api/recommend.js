@@ -1577,6 +1577,9 @@ function describeResponse(status, body) {
         recommendations: directRecs,
         model: "AniList Direct Engine",
         isExact,
+        // Present for the same reason as on the AI path below: every 200 carries
+        // the flag, so a consumer never has to infer "healthy" from an absent key.
+        degraded: Boolean(budget.anilistFailed),
       });
     }
 
@@ -1730,10 +1733,24 @@ function describeResponse(status, body) {
     }
   }
 
+  // `degraded` must be present on EVERY 200, not only on the empty direct-engine
+  // branch above. The client reads it to choose between "nothing matched" and
+  // "the catalogue was unreachable", and `withoutDegraded()` in
+  // `tests/deployed.test.mjs` retries only while it is truthy — so an empty
+  // response that omits the flag is read as a confident no-match and reported as a
+  // contract failure instead of being retried.
+  //
+  // This is how the CI smoke test came to fail on every scheduled run while
+  // passing locally: under CI's parallel load the AI stage returns nothing and the
+  // top-up query fails, which reaches this return with `recommendations: []` and no
+  // flag. The failure it produced was
+  // `the query returned nothing (degraded=undefined)` — the shape of a fault
+  // rather than a rate limit, which is exactly backwards.
   return res.status(200).json({
     recommendations: finalRecs,
     model: usedModel,
     isExact,
+    degraded: Boolean(budget.anilistFailed),
   });
 }
 

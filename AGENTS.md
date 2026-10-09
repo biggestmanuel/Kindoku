@@ -180,15 +180,23 @@ someone tried to run the script. `docs.test.mjs` now rejects the pattern.
 - **The handler keeps caches and a rate-limit table in module scope**, exactly as
   a warm serverless instance does. Tests that build the same query share cached
   candidates — use a distinct genre per test rather than assuming isolation.
-- **Measure a control's behaviour on the deployment before believing a comment
-  about it.** The rate limiter was documented as protection from abuse. Probing
-  production showed it never fires there - 40 sequential requests from one address
-  returned 40 x 200 - because the state is a module-scope Map and Vercel recycles
-  instances. Two earlier probes were misleading in opposite directions: a spoofed
-  header appeared to be honoured, and a header-preference test appeared to prove
-  otherwise, when in fact the limiter was not engaging for anybody. Only a probe
-  with no header manipulation at all separated "keyed on a forgeable value" from
-  "not enforcing". See `isRateLimited` in `api/recommend.js`.
+- **Check whether a CI job has ever passed before assuming a new change broke
+  it.** The production smoke test failed on *every* scheduled run since it was
+  written, and had never passed once. Diagnosing it took three probes, because the
+  first two pointed in opposite directions and neither was decisive.
+- **A retry helper that call sites must remember is a bug waiting to happen.**
+  `withoutDegraded()` was applied at the call site, and only 4 of 19 requests used
+  it, so the other 15 hard-failed whenever AniList was briefly rate limited — which
+  CI guarantees, since the smoke and third-party jobs both run at once. The fix
+  moved the retry *inside* `request()`, so no test can bypass it. The general form:
+  put a cross-cutting guard in the function that every caller already uses.
+- **A guard on a flag is only real if the flag is always present.** The two
+  success-path 200s omitted `degraded`, so `Object.hasOwn` is the assertion, never
+  a truthiness check — an absent key reads as false, which is indistinguishable
+  from `false`. The regression test for this failed at first because its mock made
+  AniList return an empty page, which took the empty-result branch that always had
+  the flag. It now asserts it reached a success path first, so it cannot pass
+  vacuously again.
 - **`maxDuration` is 10** because the Vercel plan is Hobby. Timing constants in
   `api/recommend.js` and `vercel.json` are asserted to agree by `budget.test.mjs`.
 - **No client-side routing.** There is no `pushState`, no hash routing, no
