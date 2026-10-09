@@ -180,16 +180,29 @@ someone tried to run the script. `docs.test.mjs` now rejects the pattern.
 - **The handler keeps caches and a rate-limit table in module scope**, exactly as
   a warm serverless instance does. Tests that build the same query share cached
   candidates — use a distinct genre per test rather than assuming isolation.
+- **Reproduce a CI-only failure before believing a fix worked.** The smoke test
+  passed 39/39 locally three times and still failed in CI, twice, after two rounds
+  of "fixes" that each looked correct in isolation. The difference was that CI runs
+  the smoke job *alongside* the third-party job, so both hit AniList at once. A
+  background load generator reproduces that on demand; a suite run on an idle
+  machine does not. A passing local run only means the condition was absent.
 - **Check whether a CI job has ever passed before assuming a new change broke
   it.** The production smoke test failed on *every* scheduled run since it was
-  written, and had never passed once. Diagnosing it took three probes, because the
-  first two pointed in opposite directions and neither was decisive.
+  written, and had never passed once, so it was broken long before anything I
+  touched. Diagnosing it took three probes, because the first two pointed in
+  opposite directions and neither was decisive.
 - **A retry helper that call sites must remember is a bug waiting to happen.**
   `withoutDegraded()` was applied at the call site, and only 4 of 19 requests used
   it, so the other 15 hard-failed whenever AniList was briefly rate limited — which
   CI guarantees, since the smoke and third-party jobs both run at once. The fix
   moved the retry *inside* `request()`, so no test can bypass it. The general form:
   put a cross-cutting guard in the function that every caller already uses.
+- **A retry budget is arithmetic, not a feeling.** Adding retries to `request()`
+  fixed the rate-limit failures and broke `hostile input is handled without a 5xx`,
+  which sends five bodies: five paced requests could not fit its 40s timeout once
+  each could take 30s, so it reported a timeout instead of the status codes it was
+  checking. Retries need an opt-out for tests where retrying is meaningless, and a
+  fetch ceiling below the test timeout.
 - **A guard on a flag is only real if the flag is always present.** The two
   success-path 200s omitted `degraded`, so `Object.hasOwn` is the assertion, never
   a truthiness check — an absent key reads as false, which is indistinguishable
