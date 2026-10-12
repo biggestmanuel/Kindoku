@@ -21,7 +21,17 @@ import { dirname, resolve } from 'node:path';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const DEPLOY_URL = (process.env.DEPLOY_URL || 'https://kindoku.vercel.app').replace(/\/$/, '');
-const TEST_TIMEOUT_MS = 40_000;
+
+// Per-test budget. Sized from request()'s worst case rather than picked:
+//
+//   3 attempts x (1.2s pace + 15s fetch ceiling) + 2 x 30s backoff = ~106s
+//
+// The previous 40s was below that ceiling, so a request that needed its retries
+// died at 39.5s and reported a timeout instead of the outcome it was checking —
+// indistinguishable, in the logs, from a real fault. 120s leaves headroom over the
+// arithmetic without letting a genuinely hung request stall the job, which the
+// workflow's own timeout-minutes still bounds.
+const TEST_TIMEOUT_MS = 120_000;
 
 const VALID_FORMATS = new Set(['Manga', 'Manhwa', 'Manhua', 'Light Novel']);
 const CANONICAL_GENRES = new Set([
@@ -55,14 +65,20 @@ let ipCounter = 0;
 let lastCallAt = 0;
 const MIN_SPACING_MS = 1_200;
 
-// How many times a `degraded` body is re-requested.
+// How many times a `degraded` body is re-requested, and how long to wait.
 //
-// Sized against measured pressure, not optimism: reproducing CI locally with a
-// background AniList load (534 competing queries during one run) exhausted three
-// retries and still surfaced `degraded=true` at an assertion. Five survives that,
-// and still fails fast enough that a genuine outage is reported rather than
-// retried into a false pass — five attempts at ~2s apart plus the response times.
-const DEGRADED_RETRIES = 5;
+// The backoff has to be LONGER than the window it is waiting out. AniList's limit
+// is per minute, so the earlier 2/4/6/8/10s ladder put every retry inside the same
+// window it was escaping: guaranteed to fail, while adding load that prolongs the
+// limit. Measured: with that ladder the test still reported `degraded=true`, and
+// did so at 39.5s against a 40s budget — it ran out of time, not retries.
+//
+// So: fewer attempts, each spaced past the window. Two retries 30s apart means the
+// second attempt lands in a window AniList has actually had time to clear. The
+// total stays inside a sane test budget because the expensive part is now two
+// sleeps rather than six requests.
+const DEGRADED_RETRIES = 2;
+const DEGRADED_BACKOFF_MS = 30_000;
 
 // A single request's ceiling. The deployment's own budget is 10s, so anything
 // past this means the request is not going to answer.
@@ -138,7 +154,7 @@ async function request(body, { attempts = 4, retry = true } = {}) {
     // useful about them.
     if (retry && last.json?.degraded && degradedRetries < DEGRADED_RETRIES) {
       degradedRetries += 1;
-      await sleep(2_000 + degradedRetries * 2_000);
+      await sleep(DEGRADED_BACKOFF_MS);
       continue;
     }
 

@@ -17,6 +17,12 @@ import { REPO_ROOT } from './harness.mjs';
 const vercel = JSON.parse(readFileSync(resolve(REPO_ROOT, 'vercel.json'), 'utf8'));
 const apiSource = readFileSync(resolve(REPO_ROOT, 'api/recommend.js'), 'utf8');
 
+// Tolerance for the wall clock advancing between two separate `remaining()`
+// reads. Generous, because this asserts an invariant rather than a timing: the
+// point is that a clamp can never exceed its budget, not that two Date.now()
+// calls land in the same millisecond.
+const CLOCK_SLOP_MS = 50;
+
 const MAX_DURATION_S = vercel.functions['api/recommend.js'].maxDuration;
 const MAX_DURATION_MS = MAX_DURATION_S * 1000;
 
@@ -218,15 +224,32 @@ test('clampTimeout never returns a non-positive timeout', () => {
 
 test('clampTimeout never hands out more time than the budget has left', () => {
   // Regression: a 500ms floor meant that with 50ms left, the returned timeout
-  // was 500ms — ten times the budget, and exactly how a "budgeted" request
+  // was 500ms - ten times the budget, and exactly how a "budgeted" request
   // overran the cap and lost the response to the platform kill.
+  //
+  // The comparison has to tolerate the clock advancing between two readings.
+  // `remaining()` and `clampTimeout()` each call Date.now() separately, so on a
+  // loaded machine real time passes in between and the second value is legitimately
+  // smaller than the first. Measured: this failed 2 runs in 6 under CPU load and
+  // never on an idle machine, which is why it looked intermittent.
+  //
+  // So assert the property that actually matters — the clamp never exceeds the
+  // budget — using a value that cannot have gone stale: re-read `remaining()`
+  // AFTER the clamp, at which point the clamp is definitely an upper bound on it.
   for (const elapsed of [9_950, 9_990, 9_999]) {
     const budget = createBudget(10_000).advance(elapsed);
-    const remaining = budget.remaining();
     const timeout = clampTimeout(4_000, budget);
+    const remainingAfter = budget.remaining();
+
     assert.ok(
-      timeout <= remaining,
-      `with ${elapsed}ms elapsed, clampTimeout returned ${timeout}ms but only ${remaining}ms remained`
+      timeout <= remainingAfter + CLOCK_SLOP_MS,
+      `with ${elapsed}ms elapsed, clampTimeout returned ${timeout}ms but only ` +
+      `${remainingAfter}ms remained afterwards`
+    );
+    // The real invariant: the clamp is capped by the budget, not by the floor.
+    assert.ok(
+      timeout <= Math.max(1, 10_000 - elapsed),
+      `with ${elapsed}ms elapsed the clamp of ${timeout}ms exceeded the budget`
     );
   }
 });
