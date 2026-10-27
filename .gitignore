@@ -1,4 +1,4 @@
-# Dependencies — the project currently has none, but node_modules must never be
+# Dependencies - the project currently has none, but node_modules must never be
 # committed if that changes.
 node_modules/
 package-lock.json
@@ -26,3 +26,6 @@ coverage/
 
 # Vercel
 .vercel/
+
+# AGENTS.md is standing rules, never committed
+AGENTS.md
